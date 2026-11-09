@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="uz">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#10131b" />
+    <title>Bizning muzeyimiz</title>
+  </head>
+  <body>
+    <canvas id="scene" aria-label="Xotiralar muzeyi"></canvas>
+
+    <section id="intro">
+      <h1 id="intro-title"></h1>
+      <p class="from-to">
+        <span>Kimdan</span> <em id="intro-from"></em>
+        <span class="sep">·</span>
+        <span>Kimga</span> <em id="intro-to"></em>
+      </p>
+      <div class="bar" role="progressbar" aria-label="Yuklanmoqda"><div id="bar-fill"></div></div>
+      <button id="enter" disabled>Yuklanmoqda…</button>
+    </section>
+
+    <div id="hud" hidden>
+      <p id="hint"></p>
+      <button id="chip" hidden></button>
+      <button id="music" class="round" hidden aria-label="Musiqani o‘chirish yoki yoqish">♪</button>
+      <div id="stick" hidden aria-hidden="true"><div id="knob"></div></div>
+    </div>
+
+    <aside id="panel" hidden>
+      <div class="panel-text">
+        <p id="panel-date"></p>
+        <h2 id="panel-title"></h2>
+        <p id="panel-note"></p>
+      </div>
+      <div class="panel-nav">
+        <button id="prev" class="round" aria-label="Oldingi xotira">‹</button>
+        <button id="next" class="round" aria-label="Keyingi xotira">›</button>
+        <button id="close" class="round" aria-label="Yopish">✕</button>
+      </div>
+    </aside>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
