@@ -10,10 +10,14 @@ import { SITE, MEMORIES } from './config.js';
 import { loadMemories } from './memories.js';
 import { computeLayout } from './layout.js';
 import { buildWorld } from './world.js';
-import { Player, EYE } from './player.js';
+import { Player } from './player.js';
+import { Character, loadAvatars } from './character.js';
+import { Hearts, Petals } from './effects.js';
 import { Input } from './input.js';
+import { Net } from './net.js';
 
 const $ = (id) => document.getElementById(id);
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 $('intro-title').textContent = SITE.title;
@@ -22,9 +26,32 @@ $('intro-to').textContent = SITE.to;
 document.title = SITE.title;
 
 function fail(message) {
-  const button = $('enter');
-  button.textContent = message;
-  button.disabled = true;
+  $('status').textContent = message;
+}
+
+/** Yuklash tugagach ism va jinsni so‘raydi. */
+function askProfile() {
+  const form = $('profile');
+  const nameInput = $('name');
+  const enter = $('enter');
+  $('status').hidden = true;
+  document.querySelector('.bar').hidden = true;
+  form.hidden = false;
+  nameInput.focus();
+
+  const refresh = () => {
+    enter.disabled = !(nameInput.value.trim() && form.elements.gender.value);
+  };
+  form.addEventListener('input', refresh);
+
+  return new Promise((resolve) => {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (enter.disabled) return;
+      nameInput.blur();
+      resolve({ name: nameInput.value.trim(), gender: form.elements.gender.value });
+    });
+  });
 }
 
 async function boot() {
@@ -43,15 +70,26 @@ async function boot() {
   }
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 
-  const memories = await loadMemories(MEMORIES, (p) => {
-    $('bar-fill').style.transform = `scaleX(${p})`;
-  });
+  // Suratlar yarim, personajlar yarim progress.
+  const progress = [0, 0];
+  const showProgress = () => {
+    $('bar-fill').style.transform = `scaleX(${(progress[0] + progress[1]) / 2})`;
+  };
+  const [memories, avatars] = await Promise.all([
+    loadMemories(MEMORIES, (p) => {
+      progress[0] = p;
+      showProgress();
+    }),
+    loadAvatars((p) => {
+      progress[1] = p;
+      showProgress();
+    }),
+  ]);
   const layout = computeLayout(memories);
   const world = buildWorld(layout, renderer.capabilities.getMaxAnisotropy());
-  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 80);
-  const player = new Player(camera, layout, reducedMotion);
-  const { placements, benches } = layout;
+  const { placements, benches, pedestal } = layout;
 
+  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 80);
   function resize() {
     const w = innerWidth;
     const h = innerHeight;
@@ -63,10 +101,24 @@ async function boot() {
   addEventListener('resize', resize);
   resize();
 
+  const profile = await askProfile();
+  const me = new Character(avatars[profile.gender], profile.gender, profile.name);
+  let them = new Character(avatars[SITE.companion.gender], SITE.companion.gender, SITE.companion.name, 0.35);
+  let themKey = `${SITE.companion.gender}:${SITE.companion.name}`;
+  world.scene.add(me.root, them.root);
+  const player = new Player(camera, layout, me, them, reducedMotion);
+  me.update(0.016);
+  them.update(0.016);
+  const hearts = new Hearts(world.scene);
+  const petals = new Petals(world.scene, layout.length);
+
   // --- Xotirani yaqindan ko‘rish ---
   let current = -1;
-  let returnPose = null;
   let returnMode = 'walk';
+  const seen = new Set();
+  let finished = false;
+
+  const canInteract = () => (player.mode === 'walk' || player.mode === 'sit') && !me.slide;
 
   function framePose(p) {
     const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
@@ -78,39 +130,54 @@ async function boot() {
     return { x: at.x, y: p.pos.y - visibleH * ((1 - usableH) / 2), z: at.z, yaw: p.yaw, pitch: 0 };
   }
 
+  function updateProgress() {
+    $('progress').textContent = `Xotiralar ${seen.size} / ${placements.length}`;
+  }
+
+  function markSeen(i) {
+    seen.add(i);
+    updateProgress();
+  }
+
+  function toast(text) {
+    hint.textContent = text;
+    hint.classList.remove('gone');
+    hintVisible = true;
+  }
+
   function showPanel(p) {
     const { memory } = p;
     $('panel-date').textContent = memory.date;
     $('panel-title').textContent = memory.title;
     $('panel-note').textContent = memory.note;
     $('panel').hidden = false;
-    $('hud').hidden = true;
+    markSeen(placements.indexOf(p));
+    playVoice(memory);
   }
 
   function openMemory(i) {
-    if (player.mode === 'walk' || player.mode === 'sit') {
-      returnPose = player.pose();
-      returnMode = player.mode;
-    } else if (player.mode !== 'view') {
-      return;
-    }
+    if (canInteract()) returnMode = player.mode;
+    else if (player.mode !== 'view') return;
     current = i;
+    stopVoice();
     $('panel').hidden = true;
     $('hud').hidden = true;
     const p = placements[i];
     player.flyTo(framePose(p), 1.1, () => {
       player.mode = 'view';
       showPanel(p);
-    });
+    }, false);
   }
 
   function closeMemory() {
     if (player.mode !== 'view') return;
+    stopVoice();
     $('panel').hidden = true;
-    player.flyTo(returnPose, 0.9, () => {
+    player.flyTo(() => player.followPose(), 0.9, () => {
       player.mode = returnMode;
       $('hud').hidden = false;
-    });
+      if (!finished && seen.size === placements.length) finish();
+    }, true);
   }
 
   const step = (dir) => {
@@ -120,36 +187,114 @@ async function boot() {
   $('next').onclick = () => step(1);
   $('close').onclick = closeMemory;
 
-  // --- Yaqin atrofdagi harakat tugmasi ---
-  const chip = $('chip');
+  // --- Ovozli xabar ---
+  const voice = new Audio();
+  const voiceBtn = $('voice');
+  // Telefon brauzerlari ovozni faqat bosishdan keyin ruxsat etadi, shuning uchun bitta element oldindan ochiladi.
+  voice.src = SILENT_WAV;
+  voice.play().catch(() => {});
+
+  function duckMusic(on) {
+    if (audio) audio.volume = on ? 0.12 : 0.55;
+  }
+  function syncVoiceButton() {
+    const playing = !voice.paused && !voice.ended;
+    voiceBtn.textContent = playing ? '❚❚' : '▶';
+    voiceBtn.setAttribute('aria-pressed', String(playing));
+    duckMusic(playing);
+  }
+  voice.onplay = voice.onpause = voice.onended = syncVoiceButton;
+
+  function playVoice(memory) {
+    voiceBtn.hidden = !memory.voice;
+    if (!memory.voice) return;
+    voice.src = `${import.meta.env.BASE_URL}memories/${memory.voice}`;
+    voice.play().catch(syncVoiceButton);
+  }
+  function stopVoice() {
+    voice.pause();
+  }
+  voiceBtn.onclick = () => {
+    if (voice.paused) voice.play().catch(() => {});
+    else voice.pause();
+  };
+
+  // --- Yakun: maktub ---
+  function finish() {
+    finished = true;
+    world.heart.material.emissive.set(0x5a0a14);
+    $('progress').classList.add('done');
+    toast('Hamma xotiralarni ko‘rding. Endi yurak oldiga bor.');
+  }
+
+  $('letter-title').textContent = SITE.letter.title.replace('{name}', profile.name);
+  $('letter-body').replaceChildren(
+    ...SITE.letter.body.map((text) => Object.assign(document.createElement('p'), { textContent: text })),
+  );
+  $('letter-sign').textContent = SITE.letter.sign;
+
+  function openLetter() {
+    returnMode = player.mode;
+    player.mode = 'view';
+    petals.start();
+    $('hud').hidden = true;
+    $('letter').hidden = false;
+    $('letter-close').focus();
+  }
+
+  function closeLetter() {
+    $('letter').hidden = true;
+    $('hud').hidden = false;
+    player.mode = returnMode;
+  }
+  $('letter-close').onclick = closeLetter;
+
+  // --- Narsalar ustidagi yorliq ---
+  const tag = $('tag');
   let prompt = null;
   let promptKey = '';
-  const toFrame = new THREE.Vector3();
+  const anchor = new THREE.Vector3();
   const look = new THREE.Vector3();
+  const toFrame = new THREE.Vector3();
+  const heartAnchor = new THREE.Vector3(pedestal.x, 2, pedestal.z);
 
   function findPrompt() {
-    if (player.mode === 'sit') return { kind: 'stand', label: 'Turish' };
-    if (player.mode !== 'walk') return null;
+    if (player.mode === 'sit' && !me.slide) {
+      return { kind: 'stand', label: 'Turish', at: anchor.set(me.x, 1.9, me.z) };
+    }
+    if (player.mode === 'dance') return null;
+    if (!canInteract()) return null;
+
+    if (finished && Math.hypot(me.x - pedestal.x, me.z - pedestal.z) < 2.4) {
+      return { kind: 'letter', label: 'Maktubni ochish', at: heartAnchor };
+    }
 
     for (let i = 0; i < benches.length; i++) {
-      if (Math.hypot(player.x - benches[i].seat.x, player.z - benches[i].seat.z) < 1.5) {
-        return { kind: 'bench', bench: benches[i], label: 'O‘tirish', id: i };
+      if (Math.hypot(me.x - benches[i].seat.x, me.z - benches[i].seat.z) < 1.7) {
+        return { kind: 'bench', bench: benches[i], label: 'O‘tirish', id: i, at: anchor.copy(benches[i].seat).setY(1) };
       }
     }
 
     camera.getWorldDirection(look);
-    let best = 0.86;
+    let best = Infinity;
     let found = -1;
     placements.forEach((p, i) => {
-      toFrame.subVectors(p.pos, camera.position);
-      if (toFrame.length() > 6) return;
-      const dot = toFrame.normalize().dot(look);
-      if (dot > best) {
-        best = dot;
+      toFrame.subVectors(p.pos, camera.position).normalize();
+      const dot = toFrame.dot(look);
+      const dist = Math.hypot(p.pos.x - me.x, p.pos.z - me.z);
+      if (dist > 5.6 || dot < 0.55) return;
+      projected.copy(p.pos).project(camera);
+      if (Math.abs(projected.x) > 0.9) return; // ekranda ko‘rinmayotgan suratga yorliq chiqmasin
+      const score = dist - dot * 3;
+      if (score < best) {
+        best = score;
         found = i;
       }
     });
-    return found >= 0 ? { kind: 'frame', index: found, label: 'Yaqindan ko‘rish', id: found } : null;
+    if (found < 0) return null;
+    const p = placements[found];
+    const label = seen.has(found) ? 'Yana ko‘rish' : 'Ko‘rish';
+    return { kind: 'frame', index: found, label, id: found, at: anchor.copy(p.pos).setY(p.pos.y + p.outerH / 2 + 0.2).addScaledVector(p.normal, 0.1) };
   }
 
   function act() {
@@ -157,16 +302,24 @@ async function boot() {
     if (prompt.kind === 'frame') openMemory(prompt.index);
     else if (prompt.kind === 'bench') player.sit(prompt.bench);
     else if (prompt.kind === 'stand') player.stand();
+    else if (prompt.kind === 'letter') openLetter();
   }
-  chip.onclick = act;
+  tag.onclick = act;
 
-  function refreshPrompt() {
+  const projected = new THREE.Vector3();
+  function refreshTag() {
     prompt = findPrompt();
-    const key = prompt ? `${prompt.kind}${prompt.id ?? ''}` : '';
-    if (key === promptKey) return;
-    promptKey = key;
-    chip.hidden = !prompt;
-    if (prompt) chip.innerHTML = input.touch ? prompt.label : `${prompt.label} <kbd>E</kbd>`;
+    const key = prompt ? `${prompt.kind}${prompt.id ?? ''}${prompt.label}` : '';
+    if (key !== promptKey) {
+      promptKey = key;
+      tag.hidden = !prompt;
+      if (prompt) tag.innerHTML = input.touch ? prompt.label : `${prompt.label} <kbd>E</kbd>`;
+    }
+    if (!prompt) return;
+    projected.copy(prompt.at).project(camera);
+    const x = THREE.MathUtils.clamp(((projected.x + 1) / 2) * innerWidth, 80, innerWidth - 80);
+    const y = THREE.MathUtils.clamp(((1 - projected.y) / 2) * innerHeight, 70, innerHeight - 120);
+    tag.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
   }
 
   // --- Kirish ---
@@ -178,7 +331,6 @@ async function boot() {
     return ray.intersectObjects(world.frames)[0]?.object.userData.placement ?? null;
   }
 
-  const canInteract = () => player.mode === 'walk' || player.mode === 'sit';
   const hint = $('hint');
   let hintVisible = true;
   const hideHint = () => {
@@ -187,9 +339,11 @@ async function boot() {
     hint.classList.add('gone');
   };
 
+  const canLook = () => player.mode === 'walk' || player.mode === 'sit' || player.mode === 'dance';
+
   const input = new Input($('scene'), $('stick'), $('knob'), {
     onLook(dx, dy) {
-      if (!canInteract()) return;
+      if (!canLook()) return;
       player.look(dx, dy);
       hideHint();
     },
@@ -202,19 +356,27 @@ async function boot() {
       $('scene').style.cursor = canInteract() && frameAt(x, y) ? 'pointer' : 'grab';
     },
     onKey(code) {
+      if (!started) return;
       if (code === 'KeyE' || code === 'Enter') {
-        if (started && canInteract()) act();
-      } else if (player.mode === 'view') {
+        if (canInteract()) act();
+      } else if (code === 'KeyQ') {
+        player.toggleDance();
+      } else if (player.mode === 'view' && $('letter').hidden) {
         if (code === 'Escape') closeMemory();
         if (code === 'ArrowLeft') step(-1);
         if (code === 'ArrowRight') step(1);
+      } else if (code === 'Escape' && !$('letter').hidden) {
+        closeLetter();
       }
     },
   });
 
   hint.textContent = input.touch
     ? 'Joystik bilan yuring, ekranni surib atrofga qarang, suratga teging.'
-    : 'W A S D bilan yuring, sichqonchani sudrab qarang, suratni bosing.';
+    : 'W A S D bilan yuring, sichqonchani sudrab qarang, Q bilan raqsga tushing.';
+  $('dance').innerHTML = input.touch ? 'Raqs' : 'Raqs <kbd>Q</kbd>';
+  $('dance').onclick = () => player.toggleDance();
+  updateProgress();
 
   // --- Musiqa ---
   let audio = null;
@@ -231,9 +393,70 @@ async function boot() {
     };
   }
 
+  // --- Ikkinchi mehmon ---
+  function setPartner(name, gender) {
+    const key = `${gender}:${name}`;
+    if (key === themKey) return;
+    themKey = key;
+    const fresh = new Character(avatars[gender], gender, name, 0.35);
+    fresh.x = them.x;
+    fresh.z = them.z;
+    fresh.heading = them.heading;
+    world.scene.remove(them.root);
+    world.scene.add(fresh.root);
+    them = fresh;
+    player.them = fresh;
+  }
+
+  let partnerName = '';
+  const net = new Net(profile, {
+    onSlot(slot) {
+      player.side = slot === 0 ? 1 : -1;
+      // Ikkinchi mehmon birinchisining ustida paydo bo‘lmasin.
+      if (slot === 1 && player.mode === 'fly') {
+        [me.x, them.x] = [them.x, me.x];
+        [me.z, them.z] = [them.z, me.z];
+        player.focusX = me.x;
+        player.focusZ = me.z;
+      }
+    },
+    onPeer(peer, first) {
+      setPartner(peer.name, peer.gender);
+      partnerName = peer.name;
+      player.remote = { x: them.x, z: them.z, h: them.heading, s: 0, st: 'stand' };
+      if (first) toast(`${peer.name} muzeyga kirdi`);
+    },
+    onState(state) {
+      if (player.remote) player.remote = state;
+    },
+    onLeft() {
+      player.remote = null;
+      them.state = 'stand';
+      toast(`${partnerName} muzeydan chiqdi`);
+    },
+  });
+
+  let lastSent = { x: 0, z: 0, h: 0, s: 0, st: '' };
+  let sendClock = 0;
+  let idleClock = 0;
+  function broadcast(dt, net) {
+    sendClock += dt;
+    idleClock += dt;
+    if (sendClock < 0.1) return;
+    sendClock = 0;
+    const round = (v) => Math.round(v * 100) / 100;
+    const s = { x: round(me.x), z: round(me.z), h: round(me.heading), s: round(me.speed), st: me.state };
+    const changed = Object.keys(s).some((k) => s[k] !== lastSent[k]);
+    if (!changed && idleClock < 1) return;
+    idleClock = 0;
+    lastSent = s;
+    net.sendState(s);
+  }
+
   // --- Asosiy sikl ---
   let started = false;
   let last = performance.now();
+  let emit = 0;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
@@ -242,32 +465,40 @@ async function boot() {
       input.poll();
       if (input.strafe || input.forward) hideHint();
       player.update(dt, input);
-      refreshPrompt();
-    } else {
-      camera.rotation.set(0, 0, 0);
-      camera.position.set(0, EYE, -0.4);
+      broadcast(dt, net);
+      refreshTag();
+      $('dance').classList.toggle('on', player.mode === 'dance');
+
+      if (player.mode === 'dance' && !reducedMotion) {
+        emit -= dt;
+        if (emit <= 0) {
+          emit = 0.28;
+          hearts.emit((me.x + them.x) / 2, (me.z + them.z) / 2);
+        }
+      }
     }
-    if (!reducedMotion) world.heart.rotation.y = now * 0.0006;
+
+    hearts.update(dt);
+    petals.update(dt, now);
+    if (!reducedMotion) {
+      world.heart.rotation.y = now * 0.0006;
+      if (finished) world.heart.scale.setScalar(0.42 * (1 + Math.sin(now * 0.005) * 0.09));
+    }
     renderer.render(world.scene, camera);
     requestAnimationFrame(frame);
   }
+  camera.position.set(0, 3.5, -0.4);
   requestAnimationFrame(frame);
 
-  const enter = $('enter');
-  enter.textContent = 'Muzeyga kirish';
-  enter.disabled = false;
-  enter.focus();
-  enter.onclick = () => {
-    audio?.play().catch(() => {});
-    $('intro').classList.add('leaving');
-    $('hud').hidden = false;
-    setTimeout(() => $('intro').remove(), 1000);
-    player.z = -0.4;
-    started = true;
-    player.flyTo({ x: 0, y: EYE, z: -1.8, yaw: 0, pitch: 0 }, 2.2, () => {
-      player.mode = 'walk';
-    });
-  };
+  audio?.play().catch(() => {});
+  $('intro').classList.add('leaving');
+  $('hud').hidden = false;
+  setTimeout(() => $('intro').remove(), 1000);
+  player.cam = { x: 0, y: 3.7, z: -0.4, yaw: 0, pitch: -0.08 };
+  started = true;
+  player.flyTo(() => player.followPose(), 3, () => {
+    player.mode = 'walk';
+  });
 }
 
 boot().catch((err) => {

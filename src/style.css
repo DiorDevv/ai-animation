@@ -111,6 +111,91 @@ button:focus-visible {
   transition: transform 0.3s ease;
 }
 
+#status {
+  font-size: 14px;
+  color: #a4a6ae;
+}
+
+#profile {
+  width: min(320px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 34px;
+  animation: fade 0.6s ease both;
+}
+
+.field,
+.genders {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  font-size: 13px;
+  color: #a4a6ae;
+  text-align: left;
+}
+
+.genders legend {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.genders {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.genders legend {
+  grid-column: 1 / -1;
+}
+
+.field input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--cream);
+  font: 500 16px var(--sans);
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.field input:focus-visible {
+  border-color: #d9a441;
+}
+
+.genders input {
+  position: absolute;
+  opacity: 0;
+}
+
+.genders span {
+  display: grid;
+  place-items: center;
+  min-height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  color: var(--cream);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.genders input:checked + span {
+  background: var(--cream);
+  border-color: var(--cream);
+  color: var(--night);
+}
+
+.genders input:focus-visible + span {
+  outline: 2px solid #d9a441;
+  outline-offset: 2px;
+}
+
 #enter {
   min-height: 48px;
   padding: 0 32px;
@@ -123,8 +208,7 @@ button:focus-visible {
 }
 
 #enter:disabled {
-  background: transparent;
-  color: #a4a6ae;
+  opacity: 0.4;
   cursor: default;
 }
 
@@ -153,19 +237,55 @@ button:focus-visible {
   opacity: 0;
 }
 
-#chip {
+#tag {
+  position: fixed;
+  left: 0;
+  top: 0;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.24);
+  will-change: transform;
+}
+
+#progress {
   position: fixed;
   left: 50%;
   bottom: calc(var(--bottom) + 8px);
   transform: translateX(-50%);
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.72);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#progress.done {
+  background: #a82a33;
+}
+
+#dance {
+  position: fixed;
+  right: var(--gutter);
+  bottom: var(--bottom);
   min-height: 48px;
-  padding: 0 22px;
+  padding: 0 18px;
   border-radius: 999px;
   background: var(--paper);
   font-size: 14px;
   font-weight: 500;
-  white-space: nowrap;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+#dance.on {
+  background: #a82a33;
+  color: #fff;
 }
 
 kbd {
@@ -175,15 +295,6 @@ kbd {
   background: var(--ink);
   color: var(--paper);
   font: 500 12px var(--sans);
-}
-
-@media (pointer: coarse) {
-  #chip {
-    left: auto;
-    right: var(--gutter);
-    bottom: calc(var(--bottom) + 34px);
-    transform: none;
-  }
 }
 
 .round {
@@ -284,6 +395,60 @@ kbd {
   background: rgba(0, 0, 0, 0.06);
 }
 
+#letter {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+  background: rgba(16, 19, 27, 0.5);
+  animation: fade 0.8s ease both;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.letter-card {
+  width: min(520px, 100%);
+  padding: clamp(28px, 6vw, 48px);
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+#letter-title {
+  font: 500 clamp(34px, 7vw, 46px) / 1.1 var(--serif);
+  margin-bottom: 20px;
+}
+
+#letter-body p {
+  font: 400 20px / 1.5 var(--serif);
+  margin-bottom: 14px;
+}
+
+#letter-sign {
+  font: italic 400 22px var(--serif);
+  text-align: right;
+  margin: 22px 0 26px;
+}
+
+#letter-close {
+  min-height: 48px;
+  padding: 0 24px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 500;
+}
+
 @media (max-width: 520px) {
   #panel {
     flex-direction: column;
@@ -298,7 +463,8 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #panel {
+  #panel,
+  #letter {
     animation: none;
   }
 

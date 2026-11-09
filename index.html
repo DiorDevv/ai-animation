@@ -17,14 +17,37 @@
         <span>Kimga</span> <em id="intro-to"></em>
       </p>
       <div class="bar" role="progressbar" aria-label="Yuklanmoqda"><div id="bar-fill"></div></div>
-      <button id="enter" disabled>Yuklanmoqda…</button>
+      <p id="status">Yuklanmoqda…</p>
+      <form id="profile" hidden autocomplete="off">
+        <label class="field">
+          <span>Ismingiz</span>
+          <input id="name" name="name" maxlength="20" required />
+        </label>
+        <fieldset class="genders">
+          <legend>Jinsingiz</legend>
+          <label><input type="radio" name="gender" value="female" /><span>Ayol</span></label>
+          <label><input type="radio" name="gender" value="male" /><span>Erkak</span></label>
+        </fieldset>
+        <button id="enter" type="submit" disabled>Muzeyga kirish</button>
+      </form>
     </section>
 
     <div id="hud" hidden>
       <p id="hint"></p>
-      <button id="chip" hidden></button>
+      <button id="tag" hidden></button>
       <button id="music" class="round" hidden aria-label="Musiqani o‘chirish yoki yoqish">♪</button>
+      <p id="progress"></p>
+      <button id="dance"></button>
       <div id="stick" hidden aria-hidden="true"><div id="knob"></div></div>
+    </div>
+
+    <div id="letter" hidden>
+      <article class="letter-card">
+        <h2 id="letter-title"></h2>
+        <div id="letter-body"></div>
+        <p id="letter-sign"></p>
+        <button id="letter-close">Muzeyga qaytish</button>
+      </article>
     </div>
 
     <aside id="panel" hidden>
@@ -34,6 +57,7 @@
         <p id="panel-note"></p>
       </div>
       <div class="panel-nav">
+        <button id="voice" class="round" hidden aria-label="Ovozli xabarni tinglash yoki to‘xtatish">▶</button>
         <button id="prev" class="round" aria-label="Oldingi xotira">‹</button>
         <button id="next" class="round" aria-label="Keyingi xotira">›</button>
         <button id="close" class="round" aria-label="Yopish">✕</button>

@@ -2,6 +2,7 @@
 // Suratlarni public/memories/ papkasiga joylang va `file` nomini moslang.
 // Fayl topilmasa, uning o‘rnida namuna chiqadi.
 // `big: true` surat devorda katta bo‘lib, oldiga skameyka qo‘yiladi.
+// `voice: '01.m4a'` qo‘shsangiz, surat ochilganda shu ovozli xabar o‘ynaydi (public/memories/ ichida).
 // Oxirgi ikki surat zal oxiridagi qora devorga osiladi.
 
 export const SITE = {
@@ -9,7 +10,18 @@ export const SITE = {
   from: 'Seni sevgan inson',
   to: 'Eng aziz insonim',
   dedication: 'Bu muzeyning yagona mehmoni — sensan.',
+  // Saytni ochgan odamning yonida yuradigan sherik.
+  companion: { name: 'Sevgilim', gender: 'male' }, // gender: 'male' yoki 'female'
   music: null, // masalan: 'music.mp3' (public/ papkasida)
+  // Hamma xotira ko‘rilgach, yurak oldida ochiladigan maktub.
+  letter: {
+    title: '{name}, tug‘ilgan kuning bilan!',
+    body: [
+      'Bu yerga o‘z so‘zlaringizni yozasiz.',
+      'Har bir xat boshi alohida qatorda turadi.',
+    ],
+    sign: 'Seni sevgan inson',
+  },
 };
 
 export const MEMORIES = [

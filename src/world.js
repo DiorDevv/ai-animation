@@ -6,7 +6,7 @@ import { SITE } from './config.js';
 const basic = (map) => new THREE.MeshBasicMaterial({ map });
 
 function addWall(scene, { center, length, rotY, map }) {
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(length, HALL.height), basic(map));
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(length, HALL.height, Math.ceil(length), 4), basic(map));
   mesh.position.copy(center).setY(HALL.height / 2);
   mesh.rotation.y = rotY;
   scene.add(mesh);
@@ -43,14 +43,15 @@ function buildRoom(scene, layout) {
     map: bakeWall({ length: W, items: [], draw: drawDedication(SITE.title, SITE.dedication) }),
   });
 
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L), basic(bakeFloor(layout)));
+  // Katta sirtlar bo‘laklanadi: kamera yaqin kelganda uchburchaklar buzilib chizilmasin.
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L, 12, 28), basic(bakeFloor(layout)));
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(0, 0, -L / 2);
   scene.add(floor);
 
   const tile = bakeCeilingTile();
   tile.repeat.set(W / 2.75, L / 2.75);
-  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, L), basic(tile));
+  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, L, 12, 28), basic(tile));
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(0, H, -L / 2);
   scene.add(ceiling);
