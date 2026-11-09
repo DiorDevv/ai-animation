@@ -11,7 +11,25 @@ export const SITE = {
   to: 'Eng aziz insonim',
   dedication: 'Bu muzeyning yagona mehmoni — sensan.',
   // Saytni ochgan odamning yonida yuradigan sherik.
-  companion: { name: 'Sevgilim', gender: 'male' }, // gender: 'male' yoki 'female'
+  // gender: 'opposite' — mehmon tanlaganining teskarisi; yoki aniq 'male' / 'female'.
+  companion: { name: 'Sevgilim', gender: 'opposite' },
+  // Birga o‘tgan vaqt hisoblagichi. NAMUNA SANA: tanishgan kuningizga almashtiring.
+  together: { since: '2024-02-14T18:00:00' },
+  // Zal bo‘ylab yashirilgan xatchalar. NAMUNA MATNLAR: o‘z so‘zlaringizga almashtiring.
+  reasons: [
+    'Kulganingda butun xona yorishib ketadi.',
+    'Yomon kunimda ham sen bilan gaplashsam yengil bo‘ladi.',
+    'Har bir kichik narsani eslab yurishing.',
+    'Meni o‘zim bo‘lganimcha qabul qilganing.',
+    'Sen bilan jim o‘tirish ham baxt.',
+    'Ko‘zlaring bir qarashda hamma gapni aytadi.',
+    'Qiyin paytda yonimda turganing.',
+    'Sening ovozing eng tinchlantiruvchi musiqa.',
+    'Hatto arazlaganingda ham yoqimlisan.',
+    'Kelajagimni sensiz tasavvur qila olmayman.',
+    'Sen meni yaxshiroq odam qilasan.',
+    'Chunki sen — sensan.',
+  ],
   music: null, // masalan: 'music.mp3' (public/ papkasida)
   // Hamma xotira ko‘rilgach, yurak oldida ochiladigan maktub.
   letter: {

@@ -52,25 +52,25 @@ export function bakeWall({ length, items, panel = 0, draw }) {
   const toY = (y) => (H - y) * ppm;
 
   const base = ctx.createLinearGradient(0, 0, 0, Ht);
-  base.addColorStop(0, '#b9b8b4');
-  base.addColorStop(0.5, '#cbcac6');
-  base.addColorStop(1, '#c6c4bf');
+  base.addColorStop(0, '#2f2722');
+  base.addColorStop(0.5, '#43372f');
+  base.addColorStop(1, '#3a2f28');
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, Ht);
 
   if (panel) {
-    ctx.fillStyle = '#212226';
+    ctx.fillStyle = '#15110e';
     ctx.fillRect(toX(-panel / 2), 0, panel * ppm, Ht);
   }
 
-  const glowAlpha = panel ? 0.2 : 0.95;
+  const glowAlpha = panel ? 0.3 : 0.8;
   for (const it of items) {
     const rx = (it.outerW / 2 + 1.1) * ppm;
-    ellipseGlow(ctx, toX(it.along), toY(FRAME_Y + 0.7), rx, 2.5 * ppm, '255,247,232', glowAlpha);
+    ellipseGlow(ctx, toX(it.along), toY(FRAME_Y + 0.7), rx, 2.5 * ppm, '255,214,158', glowAlpha);
   }
 
   ctx.save();
-  ctx.shadowColor = 'rgba(25,20,15,.5)';
+  ctx.shadowColor = 'rgba(0,0,0,.7)';
   ctx.shadowBlur = 0.16 * ppm;
   ctx.shadowOffsetY = 0.07 * ppm;
   ctx.fillStyle = '#333';
@@ -97,16 +97,16 @@ export function bakeFloor(layout) {
   const toX = (x) => (x + W / 2) * ppm;
   const toY = (z) => (L + z) * ppm;
 
-  ctx.fillStyle = '#e4dfd4';
+  ctx.fillStyle = '#2b231d';
   ctx.fillRect(0, 0, cw, ch);
 
   // Beton donadorligi
   for (let i = 0; i < cw * ch * 0.012; i++) {
-    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,.05)' : 'rgba(60,50,40,.035)';
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,225,190,.04)' : 'rgba(0,0,0,.08)';
     ctx.fillRect(Math.random() * cw, Math.random() * ch, 1.5, 1.5);
   }
 
-  ctx.strokeStyle = 'rgba(70,60,50,.09)';
+  ctx.strokeStyle = 'rgba(255,220,170,.06)';
   ctx.lineWidth = 1;
   for (let z = 0; z < L; z += 2.75) {
     ctx.beginPath();
@@ -126,7 +126,7 @@ export function bakeFloor(layout) {
     const alongX = p.wall === 'end';
     const wide = (p.outerW / 2 + 0.8) * ppm;
     const deep = 1.6 * ppm;
-    ellipseGlow(ctx, toX(c.x), toY(c.z), alongX ? wide : deep, alongX ? deep : wide, '255,250,240', 0.75);
+    ellipseGlow(ctx, toX(c.x), toY(c.z), alongX ? wide : deep, alongX ? deep : wide, '255,196,128', 0.5);
   }
 
   for (const b of layout.benches) {
@@ -147,9 +147,9 @@ export function bakeFloor(layout) {
 
 export function bakeCeilingTile() {
   const [canvas, ctx] = surface(256, 256);
-  ctx.fillStyle = '#2a2b2f';
+  ctx.fillStyle = '#120f0d';
   ctx.fillRect(0, 0, 256, 256);
-  ctx.fillStyle = '#55565c';
+  ctx.fillStyle = '#2b241e';
   ctx.fillRect(0, 0, 256, 2);
   ctx.fillRect(0, 0, 2, 256);
   const tex = toTexture(canvas, 8);
@@ -176,7 +176,7 @@ function wrapLines(ctx, text, maxWidth, maxLines) {
 
 export function bakePlaque(memory) {
   const [canvas, ctx] = surface(512, 256);
-  ctx.fillStyle = '#f6f3ec';
+  ctx.fillStyle = '#e6dac4';
   ctx.fillRect(0, 0, 512, 256);
   ctx.fillStyle = '#8b8378';
   ctx.font = '500 26px "Manrope", sans-serif';
@@ -191,10 +191,10 @@ export function bakePlaque(memory) {
 export function drawDedication(title, dedication) {
   return (ctx, { W, Ht, ppm }) => {
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#2b2824';
+    ctx.fillStyle = '#f0dfc2';
     ctx.font = `500 ${0.62 * ppm}px "Cormorant Garamond", serif`;
     ctx.fillText(title, W / 2, Ht * 0.46);
-    ctx.fillStyle = '#5a554d';
+    ctx.fillStyle = '#c8b596';
     ctx.font = `italic 400 ${0.26 * ppm}px "Cormorant Garamond", serif`;
     ctx.fillText(dedication, W / 2, Ht * 0.56);
   };

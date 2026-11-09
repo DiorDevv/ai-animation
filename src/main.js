@@ -4,6 +4,7 @@ import '@fontsource/cormorant-garamond/400-italic.css';
 import '@fontsource/cormorant-garamond/500.css';
 import '@fontsource/manrope/400.css';
 import '@fontsource/manrope/500.css';
+import '@fontsource/great-vibes/400.css';
 import './style.css';
 
 import { SITE, MEMORIES } from './config.js';
@@ -15,6 +16,8 @@ import { Character, loadAvatars } from './character.js';
 import { Hearts, Petals } from './effects.js';
 import { Input } from './input.js';
 import { Net } from './net.js';
+import { playOpening } from './opening.js';
+import { Sky, NAME_DISTANCE } from './finale.js';
 
 const $ = (id) => document.getElementById(id);
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -59,6 +62,7 @@ async function boot() {
     document.fonts.load('500 40px "Cormorant Garamond"'),
     document.fonts.load('italic 400 40px "Cormorant Garamond"'),
     document.fonts.load('500 20px "Manrope"'),
+    document.fonts.load('400 40px "Great Vibes"'),
   ]);
 
   let renderer;
@@ -86,7 +90,7 @@ async function boot() {
     }),
   ]);
   const layout = computeLayout(memories);
-  const world = buildWorld(layout, renderer.capabilities.getMaxAnisotropy());
+  const world = buildWorld(layout, renderer.capabilities.getMaxAnisotropy(), SITE.reasons.length);
   const { placements, benches, pedestal } = layout;
 
   const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 80);
@@ -103,14 +107,17 @@ async function boot() {
 
   const profile = await askProfile();
   const me = new Character(avatars[profile.gender], profile.gender, profile.name);
-  let them = new Character(avatars[SITE.companion.gender], SITE.companion.gender, SITE.companion.name, 0.35);
-  let themKey = `${SITE.companion.gender}:${SITE.companion.name}`;
+  const companionGender =
+    SITE.companion.gender === 'opposite' ? (profile.gender === 'male' ? 'female' : 'male') : SITE.companion.gender;
+  let them = new Character(avatars[companionGender], companionGender, SITE.companion.name, 0.35);
+  let themKey = `${companionGender}:${SITE.companion.name}`;
   world.scene.add(me.root, them.root);
   const player = new Player(camera, layout, me, them, reducedMotion);
   me.update(0.016);
   them.update(0.016);
   const hearts = new Hearts(world.scene);
   const petals = new Petals(world.scene, layout.length);
+  const sky = new Sky(world.scene, world.room, renderer.getPixelRatio(), reducedMotion);
 
   // --- Xotirani yaqindan ko‘rish ---
   let current = -1;
@@ -131,7 +138,8 @@ async function boot() {
   }
 
   function updateProgress() {
-    $('progress').textContent = `Xotiralar ${seen.size} / ${placements.length}`;
+    const found = world.notes.filter((n) => n.found).length;
+    $('progress').textContent = `${seen.size}/${placements.length} xotira · ${found}/${world.notes.length} xat`;
   }
 
   function markSeen(i) {
@@ -192,7 +200,6 @@ async function boot() {
   const voiceBtn = $('voice');
   // Telefon brauzerlari ovozni faqat bosishdan keyin ruxsat etadi, shuning uchun bitta element oldindan ochiladi.
   voice.src = SILENT_WAV;
-  voice.play().catch(() => {});
 
   function duckMusic(on) {
     if (audio) audio.volume = on ? 0.12 : 0.55;
@@ -233,8 +240,49 @@ async function boot() {
   );
   $('letter-sign').textContent = SITE.letter.sign;
 
+  let finaleDone = false;
+  let finaleRunning = false;
+
+  function startFinale() {
+    if (finaleDone || finaleRunning || !started) return;
+    finaleRunning = true;
+    returnMode = me.state === 'sit' ? 'sit' : 'walk';
+    if (me.state === 'dance') me.state = 'stand';
+    stopVoice();
+    $('panel').hidden = true;
+    $('hud').hidden = true;
+    player.avatarsVisible = true;
+
+    const pose = player.followPose();
+    const pitch = 0.62;
+    const cp = Math.cos(pitch);
+    const dir = new THREE.Vector3(-Math.sin(pose.yaw) * cp, Math.sin(pitch), -Math.cos(pose.yaw) * cp);
+    const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+    const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const width = 2 * NAME_DISTANCE * tan * camera.aspect * 0.82;
+
+    player.flyTo({ ...pose, pitch }, 3.2, () => {
+      player.mode = 'view';
+    });
+    const text = player.remote
+      ? player.side === 1
+        ? `${profile.name} ♥ ${partnerName}`
+        : `${partnerName} ♥ ${profile.name}`
+      : profile.name;
+    sky.start({ origin: new THREE.Vector3(pose.x, pose.y, pose.z), dir, right, up, width }, text, () => {
+      finaleRunning = false;
+      finaleDone = true;
+      showLetter();
+    });
+  }
+
   function openLetter() {
     returnMode = player.mode;
+    showLetter();
+  }
+
+  function showLetter() {
     player.mode = 'view';
     petals.start();
     $('hud').hidden = true;
@@ -244,10 +292,40 @@ async function boot() {
 
   function closeLetter() {
     $('letter').hidden = true;
-    $('hud').hidden = false;
-    player.mode = returnMode;
+    player.flyTo(() => player.followPose(), 1.3, () => {
+      player.mode = returnMode;
+      $('hud').hidden = false;
+    });
   }
   $('letter-close').onclick = closeLetter;
+
+  // --- Yashirin xatchalar ---
+  let noteTimer = 0;
+  function openNote(n) {
+    n.found = true;
+    n.group.visible = false;
+    updateProgress();
+    $('note-text').textContent = SITE.reasons[n.index];
+    $('note').hidden = false;
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => {
+      $('note').hidden = true;
+    }, 6500);
+  }
+
+  // --- Birga o‘tgan vaqt ---
+  if (world.counter && SITE.together?.since) {
+    const since = new Date(SITE.together.since).getTime();
+    const tick = () => {
+      const total = Math.max(0, Math.floor((Date.now() - since) / 1000));
+      const days = Math.floor(total / 86400);
+      const hours = Math.floor((total % 86400) / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      world.counter(`Birga: ${days} kun, ${hours} soat, ${minutes} daqiqa, ${total % 60} soniya`);
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
 
   // --- Narsalar ustidagi yorliq ---
   const tag = $('tag');
@@ -266,7 +344,16 @@ async function boot() {
     if (!canInteract()) return null;
 
     if (finished && Math.hypot(me.x - pedestal.x, me.z - pedestal.z) < 2.4) {
+      if (player.remote && !finaleDone && Math.hypot(them.x - pedestal.x, them.z - pedestal.z) > 3) {
+        return { kind: 'wait', label: `${partnerName} ham kelsin`, at: heartAnchor };
+      }
       return { kind: 'letter', label: 'Maktubni ochish', at: heartAnchor };
+    }
+
+    for (const n of world.notes) {
+      if (!n.found && Math.hypot(me.x - n.x, me.z - n.z) < 1.5) {
+        return { kind: 'note', note: n, label: 'Xatni ochish', id: n.index, at: anchor.set(n.x, 1.6, n.z) };
+      }
     }
 
     for (let i = 0; i < benches.length; i++) {
@@ -302,7 +389,13 @@ async function boot() {
     if (prompt.kind === 'frame') openMemory(prompt.index);
     else if (prompt.kind === 'bench') player.sit(prompt.bench);
     else if (prompt.kind === 'stand') player.stand();
-    else if (prompt.kind === 'letter') openLetter();
+    else if (prompt.kind === 'letter') {
+      if (finaleDone) openLetter();
+      else {
+        if (player.remote) net.sendFinale();
+        startFinale();
+      }
+    } else if (prompt.kind === 'note') openNote(prompt.note);
   }
   tag.onclick = act;
 
@@ -429,6 +522,9 @@ async function boot() {
     onState(state) {
       if (player.remote) player.remote = state;
     },
+    onFinale() {
+      startFinale();
+    },
     onLeft() {
       player.remote = null;
       them.state = 'stand';
@@ -480,6 +576,18 @@ async function boot() {
 
     hearts.update(dt);
     petals.update(dt, now);
+    sky.update(dt);
+    if (!reducedMotion) {
+      for (const f of world.flames) {
+        const v = 0.3 + Math.sin(now * 0.011 + f.seed) * 0.025 + Math.sin(now * 0.023 + f.seed * 2) * 0.02;
+        f.flame.scale.setScalar(v);
+      }
+      for (const n of world.notes) {
+        if (n.found) continue;
+        n.group.position.y = 1.15 + Math.sin(now * 0.0016 + n.seed) * 0.07;
+        n.group.rotation.y = now * 0.0007 + n.seed;
+      }
+    }
     if (!reducedMotion) {
       world.heart.rotation.y = now * 0.0006;
       if (finished) world.heart.scale.setScalar(0.42 * (1 + Math.sin(now * 0.005) * 0.09));
@@ -490,15 +598,22 @@ async function boot() {
   camera.position.set(0, 3.5, -0.4);
   requestAnimationFrame(frame);
 
-  audio?.play().catch(() => {});
-  $('intro').classList.add('leaving');
-  $('hud').hidden = false;
-  setTimeout(() => $('intro').remove(), 1000);
-  player.cam = { x: 0, y: 3.7, z: -0.4, yaw: 0, pitch: -0.08 };
-  started = true;
-  player.flyTo(() => player.followPose(), 3, () => {
-    player.mode = 'walk';
-  });
+  function unlockAudio() {
+    audio?.play().catch(() => {});
+    voice.play().catch(() => {});
+  }
+
+  function begin() {
+    $('intro').remove();
+    $('hud').hidden = false;
+    player.cam = { x: 0, y: 3.7, z: -0.4, yaw: 0, pitch: -0.08 };
+    started = true;
+    player.flyTo(() => player.followPose(), 3, () => {
+      player.mode = 'walk';
+    });
+  }
+
+  playOpening(profile.name, reducedMotion, unlockAudio, begin);
 }
 
 boot().catch((err) => {

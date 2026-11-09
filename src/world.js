@@ -4,12 +4,14 @@ import { bakeWall, bakeFloor, bakeCeilingTile, bakePlaque, drawDedication, toTex
 import { SITE } from './config.js';
 
 const basic = (map) => new THREE.MeshBasicMaterial({ map });
+const room = { dim: [], ceiling: null, lamps: null };
 
 function addWall(scene, { center, length, rotY, map }) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(length, HALL.height, Math.ceil(length), 4), basic(map));
   mesh.position.copy(center).setY(HALL.height / 2);
   mesh.rotation.y = rotY;
   scene.add(mesh);
+  room.dim.push(mesh.material);
 }
 
 function wallItems(placements, wall, center) {
@@ -48,6 +50,7 @@ function buildRoom(scene, layout) {
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(0, 0, -L / 2);
   scene.add(floor);
+  room.dim.push(floor.material);
 
   const tile = bakeCeilingTile();
   tile.repeat.set(W / 2.75, L / 2.75);
@@ -55,6 +58,7 @@ function buildRoom(scene, layout) {
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(0, H, -L / 2);
   scene.add(ceiling);
+  room.ceiling = ceiling;
 
   // Har ramka ustidagi chiroq
   const lampGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.2, 14);
@@ -77,11 +81,12 @@ function buildRoom(scene, layout) {
     lamps.setMatrixAt(i, m.compose(at, q, one));
   });
   scene.add(lamps);
+  room.lamps = lamps;
 }
 
 function buildFrames(scene, placements, maxAniso) {
-  const frameMat = new THREE.MeshBasicMaterial({ color: 0x17171a });
-  const matMat = new THREE.MeshBasicMaterial({ color: 0xf8f6f1 });
+  const frameMat = new THREE.MeshBasicMaterial({ color: 0xb8924a });
+  const matMat = new THREE.MeshBasicMaterial({ color: 0xefe6d4 });
   const hit = [];
 
   for (const p of placements) {
@@ -113,7 +118,7 @@ function buildFrames(scene, placements, maxAniso) {
 }
 
 function buildBenches(scene, benches) {
-  const seatMat = new THREE.MeshLambertMaterial({ color: 0xd9c8a6 });
+  const seatMat = new THREE.MeshLambertMaterial({ color: 0x6b4a32 });
   const legMat = new THREE.MeshLambertMaterial({ color: 0x24242a });
   for (const b of benches) {
     const group = new THREE.Group();
@@ -134,8 +139,111 @@ function buildBenches(scene, benches) {
   }
 }
 
+function glowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,240,200,1)');
+  g.addColorStop(0.25, 'rgba(255,180,90,.75)');
+  g.addColorStop(1, 'rgba(255,120,40,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const glowSprite = (map, size) => {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  s.scale.setScalar(size);
+  return s;
+};
+
+function buildCandles(scene, layout) {
+  const map = glowTexture();
+  const wax = new THREE.MeshBasicMaterial({ color: 0xe9dcc3 });
+  const flames = [];
+  const spots = [];
+  for (const p of layout.placements) {
+    for (const side of [-1, 1]) {
+      spots.push(p.pos.clone().addScaledVector(p.normal, 0.42).addScaledVector(p.right, side * (p.outerW / 2 - 0.05)).setY(0));
+    }
+  }
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    spots.push(layout.pedestal.clone().add(new THREE.Vector3(Math.cos(a) * 0.85, 0, Math.sin(a) * 0.85)));
+  }
+  spots.forEach((at, i) => {
+    const h = 0.14 + ((i * 7) % 5) * 0.035;
+    const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, h, 10), wax);
+    candle.position.copy(at).setY(h / 2);
+    scene.add(candle);
+    const flame = glowSprite(map, 0.3);
+    flame.position.copy(at).setY(h + 0.07);
+    scene.add(flame);
+    flames.push({ flame, seed: i * 1.7 });
+  });
+  return flames;
+}
+
+/** Zal bo‘ylab suzib turgan yashirin xatchalar. */
+function buildNotes(scene, layout, count) {
+  const map = glowTexture();
+  const paper = new THREE.MeshBasicMaterial({ color: 0xf1e4c9 });
+  const seal = new THREE.MeshBasicMaterial({ color: 0xb01f2e });
+  const L = layout.length;
+  const blocked = (x, z) =>
+    layout.colliders.some((c) => x > c.minX - 0.9 && x < c.maxX + 0.9 && z > c.minZ - 0.9 && z < c.maxZ + 0.9);
+
+  return Array.from({ length: count }, (_, i) => {
+    const sign = i % 2 ? 1 : -1;
+    let x = sign * (1.3 + ((i * 37) % 28) / 10);
+    const z = -(3 + (i * (L - 7)) / Math.max(1, count - 1));
+    for (let tries = 0; tries < 4 && blocked(x, z); tries++) x -= sign * 1.1;
+
+    const group = new THREE.Group();
+    group.position.set(x, 1.15, z);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.17, 0.012), paper);
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.03, 16), seal);
+    dot.position.z = 0.008;
+    const dotBack = dot.clone();
+    dotBack.position.z = -0.008;
+    dotBack.rotation.y = Math.PI;
+    const halo = glowSprite(map, 0.75);
+    halo.material.opacity = 0.55;
+    group.add(body, dot, dotBack, halo);
+    scene.add(group);
+    return { group, x, z, index: i, found: false, seed: i * 1.3 };
+  });
+}
+
+function buildCounter(scene, layout) {
+  if (!layout.endSpan) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1400;
+  canvas.height = 120;
+  const tex = toTexture(canvas);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.6, 0.48),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
+  );
+  mesh.position.set(0, 3.6, -layout.length + 0.02);
+  scene.add(mesh);
+  const ctx = canvas.getContext('2d');
+  return (text) => {
+    ctx.clearRect(0, 0, 1400, 120);
+    ctx.fillStyle = '#e6c88a';
+    ctx.font = '500 66px "Cormorant Garamond", serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 700, 62);
+    tex.needsUpdate = true;
+  };
+}
+
 function buildHeart(scene, at) {
-  const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.05, 0.8), new THREE.MeshLambertMaterial({ color: 0xf1eee7 }));
+  const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.05, 0.8), new THREE.MeshLambertMaterial({ color: 0xd9cdb8 }));
   pedestal.position.copy(at).setY(0.525);
   scene.add(pedestal);
 
@@ -158,11 +266,11 @@ function buildHeart(scene, at) {
   return heart;
 }
 
-export function buildWorld(layout, maxAniso) {
+export function buildWorld(layout, maxAniso, noteCount) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x202124);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc7b8, 2.1));
-  const sun = new THREE.DirectionalLight(0xfff2de, 1.5);
+  scene.background = new THREE.Color(0x05060d);
+  scene.add(new THREE.HemisphereLight(0xffdfbd, 0x2a1f18, 1.3));
+  const sun = new THREE.DirectionalLight(0xffd29a, 1.9);
   sun.position.set(2, 6, 3);
   scene.add(sun);
 
@@ -170,8 +278,19 @@ export function buildWorld(layout, maxAniso) {
   const frames = buildFrames(scene, layout.placements, maxAniso);
   buildBenches(scene, layout.benches);
   const heart = buildHeart(scene, layout.pedestal);
+  const flames = buildCandles(scene, layout);
+  const notes = buildNotes(scene, layout, noteCount);
+  const counter = buildCounter(scene, layout);
 
-  return { scene, frames, heart };
+  room.setDim = (v) => room.dim.forEach((m) => m.color.setScalar(v));
+  room.setCeiling = (v) => {
+    room.ceiling.material.transparent = v < 1;
+    room.ceiling.material.opacity = v;
+    room.ceiling.visible = v > 0.01;
+    room.lamps.visible = v > 0.4;
+  };
+
+  return { scene, frames, heart, flames, notes, counter, room };
 }
 
 export const FRAME_DEPTH = MAT + BORDER;

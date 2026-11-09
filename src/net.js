@@ -55,7 +55,13 @@ export class Net {
       this.dropPeer();
     } else if (m.t === 's' && this.peer) {
       this.handlers.onState(m);
+    } else if (m.t === 'f' && this.peer) {
+      this.handlers.onFinale();
     }
+  }
+
+  sendFinale() {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ t: 'f' }));
   }
 
   sendState(state) {

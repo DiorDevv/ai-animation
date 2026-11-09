@@ -301,7 +301,7 @@ export class Player {
     this.focusZ += (this.me.z - this.focusZ) * k;
 
     if (this.tween) this.updateTween(dt);
-    else this.cam = this.followPose();
+    else if (this.mode !== 'view') this.cam = this.followPose();
 
     this.camera.rotation.set(this.cam.pitch, this.cam.yaw, 0, 'YXZ');
     this.camera.position.set(this.cam.x, this.cam.y, this.cam.z);

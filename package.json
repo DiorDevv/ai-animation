@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@fontsource/cormorant-garamond": "^5.3.0",
+    "@fontsource/great-vibes": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
     "sirv": "^3.0.2",
     "three": "^0.187.0",

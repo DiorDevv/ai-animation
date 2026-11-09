@@ -70,6 +70,8 @@ wss.on('connection', (ws) => {
     } else if (m?.t === 's') {
       const state = cleanState(m);
       if (state) send(other(), state);
+    } else if (m?.t === 'f') {
+      send(other(), { t: 'f' });
     }
   });
 
