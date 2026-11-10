@@ -37,6 +37,7 @@ export function buildDinner(scene, layout) {
   }
 
   const glasses = [];
+  const utensils = [];
   const glassMat = new THREE.MeshLambertMaterial({ color: 0xe8eef2, transparent: true, opacity: 0.45 });
   const wineMat = new THREE.MeshLambertMaterial({ color: 0x6b1020 });
   for (const sign of [-1, 1]) {
@@ -56,6 +57,18 @@ export function buildDinner(scene, layout) {
     glass.position.copy(rest);
     scene.add(glass);
     glasses.push({ mesh: glass, rest });
+
+    // Qo'ldagi vilka va luqma
+    const fork = new THREE.Group();
+    fork.add(new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.005, 0.19, 6).translate(0, 0.095, 0), gold));
+    for (const dx of [-0.01, 0, 0.01]) fork.add(new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.03, 0.003).translate(dx, 0.2, 0), gold));
+    const bit = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), food.material);
+    bit.position.y = 0.205;
+    bit.visible = false;
+    fork.add(bit);
+    fork.visible = false;
+    scene.add(fork);
+    utensils.push({ fork, bit, food, plate: new THREE.Vector3(center.x + sign * 0.36, 0.8, center.z) });
   }
 
   // Shamlar va atirgullar
@@ -96,5 +109,5 @@ export function buildDinner(scene, layout) {
   scene.add(lid);
 
   layout.colliders.push({ minX: center.x - 1.2, maxX: center.x + 1.2, minZ: center.z - 0.72, maxZ: center.z + 0.72 });
-  return { center, seats, glasses, rose, lid };
+  return { center, seats, glasses, utensils, rose, lid };
 }

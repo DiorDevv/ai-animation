@@ -203,8 +203,11 @@ export class Player {
         c.state = 'table';
       });
     }
-    this.me.glass = dinner.glasses[this.side === 1 ? 0 : 1];
-    this.them.glass = dinner.glasses[this.side === 1 ? 1 : 0];
+    const mine = this.side === 1 ? 0 : 1;
+    this.me.glass = dinner.glasses[mine];
+    this.me.utensil = dinner.utensils[mine];
+    this.them.glass = dinner.glasses[1 - mine];
+    this.them.utensil = dinner.utensils[1 - mine];
   }
 
   canKiss() {
@@ -217,7 +220,7 @@ export class Player {
     const { me, them } = this;
     this.mode = 'kiss';
     this.vx = this.vz = 0;
-    this.kissTime = 8;
+    this.kissTime = 9.5;
     const dx = them.x - me.x;
     const dz = them.z - me.z;
     const len = Math.hypot(dx, dz) || 1;
@@ -243,18 +246,31 @@ export class Player {
     const clear = (x, z) =>
       inside(x, z) && !this.layout.colliders.some((b) => x > b.minX - 0.7 && x < b.maxX + 0.7 && z > b.minZ - 0.7 && z < b.maxZ + 0.7);
     // Iloji bo'lsa kamera shahar manzarasi tomonga qaraydi.
+    const R = 1.4;
     let side = ux >= 0 ? 1 : -1;
-    if (!clear(midX - uz * 1.9 * side, midZ + ux * 1.9 * side)) side = -side;
-    const cx = midX - uz * 1.9 * side;
-    const cz = midZ + ux * 1.9 * side;
+    if (!clear(midX - uz * R * side, midZ + ux * R * side)) side = -side;
+    const cx = midX - uz * R * side;
+    const cz = midZ + ux * R * side;
     const yaw = Math.atan2(-(midX - cx), -(midZ - cz));
-    this.flyTo({ x: cx, y: 1.6, z: cz, yaw, pitch: 0.02 }, 1.2, () => {
+    this.kissCam = { x: midX, z: midZ, angle: Math.atan2(cx - midX, cz - midZ), r: R };
+    this.flyTo({ x: cx, y: 1.62, z: cz, yaw, pitch: 0.01 }, 1.4, () => {
       this.mode = 'kiss';
     });
     this.mode = 'kiss';
   }
 
+  /** O'pish paytida kamera juftlik atrofida sekin aylanadi va yaqinlashadi. */
+  orbitKiss(dt) {
+    const c = this.kissCam;
+    c.angle += dt * 0.07;
+    c.r = Math.max(1.1, c.r - dt * 0.03);
+    const x = c.x + Math.sin(c.angle) * c.r;
+    const z = c.z + Math.cos(c.angle) * c.r;
+    this.cam = { x, y: 1.62, z, yaw: Math.atan2(-(c.x - x), -(c.z - z)), pitch: 0.01 };
+  }
+
   endKiss() {
+    this.kissCam = null;
     this.me.state = 'stand';
     if (!this.remote) this.them.state = 'stand';
     this.flyTo(() => this.followPose(), 1.1, () => {
@@ -387,8 +403,9 @@ export class Player {
     const k = 1 - Math.exp(-dt * 3.2);
     const w = (me.kissWeight += ((active ? 1 : 0) - me.kissWeight) * k);
     if (w > 0.002) {
-      me.kissPose(them, w, 1);
-      them.kissPose(me, w, -1);
+      const t = performance.now() * 0.001;
+      me.kissPose(them, w, 1, t);
+      them.kissPose(me, w, -1, t);
     }
     if (this.mode === 'kiss') {
       this.kissTime -= dt;
@@ -586,8 +603,8 @@ export class Player {
     this.updateKiss(dt, moved);
     this.updateSlow(dt, moved, performance.now());
     this.updateGift(dt);
-    this.me.updateSip(dt, this.me.glass);
-    this.them.updateSip(dt, this.them.glass);
+    this.me.updateMeal(dt, this.me.glass, this.me.utensil);
+    this.them.updateMeal(dt, this.them.glass, this.them.utensil);
 
     if (this.orbitGoal !== null) {
       const delta = shortestAngle(this.orbitYaw, this.orbitGoal);
@@ -600,6 +617,7 @@ export class Player {
     this.focusZ += ((this.focusAt?.z ?? this.me.z) - this.focusZ) * k;
 
     if (this.tween) this.updateTween(dt);
+    else if (this.mode === 'kiss' && this.kissCam) this.orbitKiss(dt);
     else if (this.mode !== 'view' && this.mode !== 'kiss') this.followCamera(dt);
 
     this.camera.rotation.set(this.cam.pitch, this.cam.yaw, 0, 'YXZ');

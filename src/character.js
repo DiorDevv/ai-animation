@@ -37,6 +37,15 @@ function rotateWorld(bone, q) {
   bone.updateWorldMatrix(false, true);
 }
 
+/** Barmoqlarni berilgan nuqta tomon buradi: qo'l tanani o'rab turadi. */
+function aimHand(hand, finger, point, weight) {
+  if (!finger) return;
+  const wrist = hand.getWorldPosition(new THREE.Vector3());
+  const tip = finger.getWorldPosition(new THREE.Vector3());
+  const q = new THREE.Quaternion().setFromUnitVectors(tip.sub(wrist).normalize(), point.clone().sub(wrist).normalize());
+  rotateWorld(hand, new THREE.Quaternion().slerp(q, weight));
+}
+
 /** Ikki bo‘g‘inli qo‘l: qo‘l panjasini nishonga yetkazadi. */
 function reachArm(upper, fore, hand, target, weight) {
   upper.getWorldPosition(vA);
@@ -165,6 +174,8 @@ export class Character {
       rUpper: bone('R_UpperArm'),
       rFore: bone('R_Forearm'),
       rHand: bone('R_Hand'),
+      lFinger: bone('L_Finger2'),
+      rFinger: bone('R_Finger2'),
     };
     this.gender = gender;
     this.kissWeight = 0;
@@ -173,8 +184,18 @@ export class Character {
     this.restWeight = 0;
     this.tableClip = 'table';
     this.tableTimer = 4;
-    this.sip = null;
-    this.sipTimer = 4 + Math.random() * 3;
+    this.meal = null;
+    this.mealTimer = 2 + Math.random() * 3;
+    this.mealStep = -1;
+    this.chew = 0;
+    this.sipping = false;
+    this.kissAmount = 0;
+    this.blinkTimer = 1 + Math.random() * 3;
+    this.blinkLeft = 0;
+    this.face = { blink: 0, smile: 0, jaw: 0, pucker: 0 };
+    model.traverse((n) => {
+      if (n.isMesh && n.morphTargetDictionary) this.morph = n;
+    });
 
     this.standTagY = gender === 'male' ? 2.05 : 1.96;
     this.nameTag = nameSprite(name);
@@ -281,68 +302,135 @@ export class Character {
       turnQ.setFromAxisAngle(axis, this.headAngle);
       this.head.quaternion.premultiply(turnQ);
     }
+    this.updateFace(dt, performance.now());
   }
 
-  /** O‘pish holati: animatsiya ustidan bosh, bel va qo‘llar sherik tomon buriladi. */
-  kissPose(partner, weight, tilt) {
+  /** O‘pish: boshlar yaqinlashadi, ko‘zlar yumiladi, qo‘llar yuz va belda turadi. */
+  kissPose(partner, weight, tilt, time) {
     this.root.updateMatrixWorld(true);
     partner.root.updateMatrixWorld(true);
+    this.kissAmount = weight;
     const forward = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
     const side = new THREE.Vector3(forward.z, 0, -forward.x);
+    const male = this.gender === 'male';
     const { bones } = this;
 
-    rotateWorld(bones.spine, new THREE.Quaternion().setFromAxisAngle(side, (this.gender === 'male' ? 0.3 : 0.14) * weight));
+    // Lablar tegishi uchun boshlar orasidagi masofaga qarab engashadi.
+    const gap = this.head.getWorldPosition(new THREE.Vector3()).distanceTo(partner.head.getWorldPosition(new THREE.Vector3()));
+    const reach = THREE.MathUtils.clamp((gap - 0.19) / 0.84, 0, 0.42) * (male ? 1.15 : 0.85);
+    const lean = (male ? 0.18 : 0.07) + reach + Math.sin(time * 0.9) * 0.015;
+    rotateWorld(bones.spine, new THREE.Quaternion().setFromAxisAngle(side, lean * weight));
 
     const mine = this.head.getWorldPosition(new THREE.Vector3());
     const theirs = partner.head.getWorldPosition(new THREE.Vector3());
     const look = theirs.clone().sub(mine).normalize();
-    const aim = new THREE.Quaternion().setFromUnitVectors(forward, look);
-    rotateWorld(this.head, new THREE.Quaternion().slerp(aim, weight));
-    rotateWorld(this.head, new THREE.Quaternion().setFromAxisAngle(look, 0.26 * tilt * weight));
+    rotateWorld(this.head, new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(forward, look), weight));
+    rotateWorld(this.head, new THREE.Quaternion().setFromAxisAngle(look, (0.3 + Math.sin(time * 0.7) * 0.05) * tilt * weight));
 
     const otherForward = new THREE.Vector3(Math.sin(partner.heading), 0, Math.cos(partner.heading));
     const otherSide = new THREE.Vector3(otherForward.z, 0, -otherForward.x);
-    const anchor = this.gender === 'male' ? partner.bones.pelvis : partner.bones.neck;
-    const center = anchor.getWorldPosition(new THREE.Vector3());
-    const up = this.gender === 'male' ? 0.1 : -0.02;
-    const back = this.gender === 'male' ? -0.1 : -0.06;
-    const spread = this.gender === 'male' ? 0.13 : 0.09;
-    for (const [upper, fore, hand, sign] of [[bones.lUpper, bones.lFore, bones.lHand, -1], [bones.rUpper, bones.rFore, bones.rHand, 1]]) {
-      const target = center.clone().addScaledVector(otherForward, back).addScaledVector(otherSide, sign * spread).setY(center.y + up);
-      reachArm(upper, fore, hand, target, weight);
-    }
+    const at = (bone) => bone.getWorldPosition(new THREE.Vector3());
+    const targets = male
+      ? [
+          at(partner.bones.pelvis).addScaledVector(otherForward, -0.1).addScaledVector(otherSide, -0.12).add(new THREE.Vector3(0, 0.12, 0)),
+          at(partner.bones.spine).addScaledVector(otherForward, -0.12).addScaledVector(otherSide, 0.08),
+        ]
+      : [
+          at(partner.bones.neck).addScaledVector(otherForward, -0.04).addScaledVector(otherSide, -0.11).add(new THREE.Vector3(0, -0.04, 0)),
+          at(partner.bones.neck).addScaledVector(otherForward, -0.04).addScaledVector(otherSide, 0.11).add(new THREE.Vector3(0, -0.04, 0)),
+        ];
+    // Barmoqlar sherikning orqa tomoni o'rtasiga qarab yopiladi.
+    const wrap = at(male ? partner.bones.spine : partner.bones.neck).addScaledVector(otherForward, male ? -0.16 : -0.11);
+    reachArm(bones.lUpper, bones.lFore, bones.lHand, targets[0], weight);
+    aimHand(bones.lHand, bones.lFinger, wrap, weight);
+    reachArm(bones.rUpper, bones.rFore, bones.rHand, targets[1], weight);
+    aimHand(bones.rHand, bones.rFinger, wrap, weight);
   }
 
-  /** Kechki ovqatda vaqti-vaqti bilan bokalni olib ichadi. */
-  updateSip(dt, glass) {
-    if (!glass || this.state !== 'table' || this.shot) {
-      this.sip = null;
+  /** Yuz ifodasi: ko‘z pirpiratish, jilmayish, gapirish, chaynash va o‘pish. */
+  updateFace(dt, now) {
+    if (!this.morph) return;
+    const t = now * 0.001;
+    this.blinkTimer -= dt;
+    if (this.blinkTimer <= 0) {
+      this.blinkLeft = 0.17;
+      this.blinkTimer = 2.2 + Math.random() * 3.8;
+    }
+    this.blinkLeft = Math.max(0, this.blinkLeft - dt);
+    const blink = this.blinkLeft > 0 ? Math.sin((this.blinkLeft / 0.17) * Math.PI) : 0;
+    this.chew = Math.max(0, this.chew - dt);
+    const kissing = this.kissAmount;
+    const talking = this.current === 'talk2';
+    const smile = { dance: 0.55, wave: 0.5, slow: 0.42, table: 0.34, sit: 0.3 }[this.state] ?? (this.gender === 'male' ? 0.14 : 0.24);
+
+    const goal = {
+      blink: Math.max(blink, kissing > 0.45 ? 0.96 : 0, this.state === 'slow' ? 0.72 : 0),
+      smile: smile * (1 - kissing * 0.9),
+      jaw: this.chew > 0 ? 0.08 + 0.09 * (0.5 + 0.5 * Math.sin(t * 9)) : talking ? 0.05 + Math.abs(Math.sin(t * 7.3) * Math.sin(t * 2.1)) * 0.17 : kissing * 0.03,
+      pucker: Math.max(kissing * 0.6, this.sipping ? 0.3 : 0),
+    };
+    const k = 1 - Math.exp(-dt * 13);
+    for (const name of Object.keys(goal)) {
+      this.face[name] += (goal[name] - this.face[name]) * k;
+      this.morph.morphTargetInfluences[this.morph.morphTargetDictionary[name]] = this.face[name];
+    }
+    this.kissAmount *= Math.exp(-dt * 6);
+  }
+
+  /** Kechki ovqat: vilkada luqma olib og‘ziga yaqinlashtiradi, gohida bokaldan ichadi. */
+  updateMeal(dt, glass, utensil) {
+    this.sipping = false;
+    if (!glass || !utensil || this.state !== 'table' || this.shot) {
+      if (utensil) utensil.fork.visible = false;
+      this.meal = null;
       return;
     }
-    if (this.sip === null) {
-      this.sipTimer -= dt;
-      if (this.sipTimer > 0) return;
-      this.sip = 0;
-    }
-    this.sip = Math.min(1, this.sip + dt / 3.4);
-    const s = this.sip;
+    utensil.fork.visible = true;
     this.root.updateMatrixWorld(true);
+    const handNow = this.bones.rHand.getWorldPosition(new THREE.Vector3());
+    if (!this.meal) {
+      utensil.bit.visible = false;
+      utensil.fork.position.copy(handNow);
+      utensil.fork.quaternion.setFromUnitVectors(UP, new THREE.Vector3(Math.sin(this.heading) * 0.7, -0.7, Math.cos(this.heading) * 0.7).normalize());
+      this.mealTimer -= dt;
+      if (this.mealTimer > 0) return;
+      this.mealStep = (this.mealStep + 1) % 3;
+      this.meal = { type: this.mealStep === 2 ? 'sip' : 'bite', s: 0 };
+    }
 
-    const head = this.head.getWorldPosition(new THREE.Vector3());
+    const meal = this.meal;
+    meal.s = Math.min(1, meal.s + dt / (meal.type === 'sip' ? 3.4 : 3));
+    const s = meal.s;
+    const smooth = THREE.MathUtils.smoothstep;
     const forward = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
-    const mouth = head.addScaledVector(forward, 0.13).add(new THREE.Vector3(0, -0.08, 0));
-    const rise = THREE.MathUtils.smoothstep(s, 0.22, 0.46) - THREE.MathUtils.smoothstep(s, 0.68, 0.9);
-    const target = glass.rest.clone().lerp(mouth, rise);
-    const weight = THREE.MathUtils.smoothstep(s, 0, 0.18) * (1 - THREE.MathUtils.smoothstep(s, 0.92, 1));
-    const { rUpper, rFore, rHand } = this.bones;
-    reachArm(rUpper, rFore, rHand, target, weight);
+    const mouth = this.head.getWorldPosition(new THREE.Vector3()).addScaledVector(forward, 0.12).add(new THREE.Vector3(0, -0.08, 0));
+    const rise = smooth(s, 0.24, 0.5) - smooth(s, 0.62, 0.88);
+    const weight = smooth(s, 0, 0.18) * (1 - smooth(s, 0.9, 1));
 
-    if (s > 0.2 && s < 0.92) rHand.getWorldPosition(glass.mesh.position).add(new THREE.Vector3(0, -0.02, 0));
-    else glass.mesh.position.copy(glass.rest);
-
+    if (meal.type === 'sip') {
+      this.sipping = rise > 0.6;
+      utensil.fork.visible = false;
+      const hand = this.reachRight(glass.rest.clone().lerp(mouth, rise), weight);
+      if (s > 0.2 && s < 0.92) glass.mesh.position.copy(hand).add(new THREE.Vector3(0, -0.02, 0));
+      else glass.mesh.position.copy(glass.rest);
+    } else {
+      const handPlate = utensil.plate.clone().add(new THREE.Vector3(0, 0.15, 0)).addScaledVector(forward, -0.1);
+      const handMouth = mouth.clone().addScaledVector(forward, 0.1).add(new THREE.Vector3(0, -0.14, 0));
+      const hand = this.reachRight(handPlate.lerp(handMouth, rise), weight);
+      const tip = utensil.plate.clone().lerp(mouth, rise);
+      utensil.fork.position.copy(hand);
+      utensil.fork.quaternion.setFromUnitVectors(UP, tip.sub(hand).normalize());
+      utensil.bit.visible = s > 0.22 && s < 0.58;
+      if (s > 0.58 && !meal.bitten) {
+        meal.bitten = true;
+        this.chew = 2.4;
+        utensil.food.scale.multiplyScalar(0.93);
+      }
+      rotateWorld(this.head, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(forward.z, 0, -forward.x), 0.13 * rise));
+    }
     if (s >= 1) {
-      this.sip = null;
-      this.sipTimer = 7 + Math.random() * 5;
+      this.meal = null;
+      this.mealTimer = 3 + Math.random() * 4;
       glass.mesh.position.copy(glass.rest);
     }
   }
@@ -362,9 +450,11 @@ export class Character {
     const otherSide = new THREE.Vector3(otherForward.z, 0, -otherForward.x);
     const male = this.gender === 'male';
     const center = (male ? partner.bones.pelvis : partner.bones.neck).getWorldPosition(new THREE.Vector3());
-    for (const [upper, fore, hand, s] of [[bones.lUpper, bones.lFore, bones.lHand, -1], [bones.rUpper, bones.rFore, bones.rHand, 1]]) {
-      const target = center.clone().addScaledVector(otherForward, male ? -0.11 : -0.03).addScaledVector(otherSide, s * (male ? 0.14 : 0.13)).setY(center.y + (male ? 0.12 : -0.05));
+    const wrap = center.clone().addScaledVector(otherForward, male ? -0.16 : -0.11).setY(center.y + (male ? 0.12 : -0.04));
+    for (const [upper, fore, hand, finger, s] of [[bones.lUpper, bones.lFore, bones.lHand, bones.lFinger, -1], [bones.rUpper, bones.rFore, bones.rHand, bones.rFinger, 1]]) {
+      const target = center.clone().addScaledVector(otherForward, male ? -0.11 : -0.04).addScaledVector(otherSide, s * (male ? 0.14 : 0.11)).setY(center.y + (male ? 0.12 : -0.05));
       reachArm(upper, fore, hand, target, weight);
+      aimHand(hand, finger, wrap, weight);
     }
   }
 
