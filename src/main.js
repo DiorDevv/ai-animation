@@ -13,13 +13,34 @@ import { computeLayout } from './layout.js';
 import { buildWorld } from './world.js';
 import { Player } from './player.js';
 import { Character, loadAvatars } from './character.js';
-import { Hearts, Petals } from './effects.js';
+import { Hearts, Petals, Fireworks } from './effects.js';
 import { Input } from './input.js';
 import { Net } from './net.js';
+import { Sound } from './sound.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { playOpening } from './opening.js';
 import { Sky, NAME_DISTANCE } from './finale.js';
 
 const $ = (id) => document.getElementById(id);
+const STORE_KEY = 'our-museum-v1';
+function loadStore() {
+  try {
+    return JSON.parse(localStorage.getItem(STORE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+function saveStore(data) {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({ ...loadStore(), ...data }));
+  } catch {
+    // saqlash imkoni bo‘lmasa ham sayt ishlayveradi
+  }
+}
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -46,13 +67,21 @@ function askProfile() {
     enter.disabled = !(nameInput.value.trim() && form.elements.gender.value);
   };
   form.addEventListener('input', refresh);
+  const saved = loadStore().profile;
+  if (saved) {
+    nameInput.value = saved.name;
+    form.elements.gender.value = saved.gender;
+    refresh();
+  }
 
   return new Promise((resolve) => {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       if (enter.disabled) return;
       nameInput.blur();
-      resolve({ name: nameInput.value.trim(), gender: form.elements.gender.value });
+      const profile = { name: nameInput.value.trim(), gender: form.elements.gender.value };
+      saveStore({ profile });
+      resolve(profile);
     });
   });
 }
@@ -93,11 +122,13 @@ async function boot() {
   const world = buildWorld(layout, renderer.capabilities.getMaxAnisotropy(), SITE.reasons.length);
   const { placements, benches, pedestal } = layout;
 
-  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 80);
+  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 320);
+  let composer = null;
   function resize() {
     const w = innerWidth;
     const h = innerHeight;
     renderer.setSize(w, h, false);
+    composer?.setSize(w, h);
     camera.aspect = w / h;
     camera.fov = camera.aspect < 1 ? 78 : 62;
     camera.updateProjectionMatrix();
@@ -106,26 +137,81 @@ async function boot() {
   resize();
 
   const profile = await askProfile();
+  // --- Sifat darajasi: 2 — nur effekti bilan, 1 — o‘rta, 0 — kuchsiz qurilma ---
+  const forced = new URLSearchParams(location.search).get('q');
+  let tier = forced ? Number(forced) : matchMedia('(pointer: coarse)').matches ? 1 : 2;
+  function applyTier() {
+    renderer.setPixelRatio(tier === 2 ? Math.min(devicePixelRatio, 1.75) : tier === 1 ? Math.min(devicePixelRatio, 1.5) : 1);
+    if (tier === 2 && !composer) {
+      const target = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+      composer = new EffectComposer(renderer, target);
+      composer.addPass(new RenderPass(world.scene, camera));
+      composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.38, 0.65, 0.97));
+      composer.addPass(new OutputPass());
+    }
+    if (tier < 2) composer = null;
+    world.flames.forEach((f) => {
+      f.flame.visible = tier > 0;
+    });
+    resize();
+  }
+  applyTier();
+
+  let fpsFrames = 0;
+  let fpsTime = 0;
+  function watchSpeed(dt) {
+    if (forced || tier === 0) return;
+    fpsFrames++;
+    fpsTime += dt;
+    if (fpsTime < 3) return;
+    const fps = fpsFrames / fpsTime;
+    fpsFrames = 0;
+    fpsTime = 0;
+    if (fps < 30) {
+      tier--;
+      applyTier();
+    }
+  }
+
+  // Teri va kiyimga tabiiy yorug‘lik beradi.
+  if (tier > 0) {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    world.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    world.scene.environmentIntensity = 0.3;
+    pmrem.dispose();
+  }
+
+  const sound = new Sound();
   const me = new Character(avatars[profile.gender], profile.gender, profile.name);
   const companionGender =
     SITE.companion.gender === 'opposite' ? (profile.gender === 'male' ? 'female' : 'male') : SITE.companion.gender;
   let them = new Character(avatars[companionGender], companionGender, SITE.companion.name, 0.35);
   let themKey = `${companionGender}:${SITE.companion.name}`;
   world.scene.add(me.root, them.root);
+  me.onStep = () => sound.step(1);
+  them.onStep = () => sound.step(0.4);
   const player = new Player(camera, layout, me, them, reducedMotion);
   me.update(0.016);
   them.update(0.016);
   const hearts = new Hearts(world.scene);
   const petals = new Petals(world.scene, layout.length);
-  const sky = new Sky(world.scene, world.room, renderer.getPixelRatio(), reducedMotion);
+  const fireworks = new Fireworks(world.scene, pedestal.x, -layout.length);
+  const sky = new Sky(world.scene, world.room, renderer.getPixelRatio(), reducedMotion, -layout.length);
 
   // --- Xotirani yaqindan ko‘rish ---
   let current = -1;
   let returnMode = 'walk';
-  const seen = new Set();
+  const store = loadStore();
+  const seen = new Set((store.seen ?? []).filter((i) => i < placements.length));
+  for (const n of world.notes) {
+    if (store.notes?.includes(n.index)) {
+      n.found = true;
+      n.group.visible = false;
+    }
+  }
   let finished = false;
 
-  const canInteract = () => (player.mode === 'walk' || player.mode === 'sit') && !me.slide;
+  const canInteract = () => (player.mode === 'walk' || player.mode === 'sit') && !me.slide && !me.shot;
 
   function framePose(p) {
     const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
@@ -144,6 +230,7 @@ async function boot() {
 
   function markSeen(i) {
     seen.add(i);
+    saveStore({ seen: [...seen] });
     updateProgress();
   }
 
@@ -203,6 +290,7 @@ async function boot() {
 
   function duckMusic(on) {
     if (audio) audio.volume = on ? 0.12 : 0.55;
+    sound.duck(on);
   }
   function syncVoiceButton() {
     const playing = !voice.paused && !voice.ended;
@@ -231,7 +319,7 @@ async function boot() {
     finished = true;
     world.heart.material.emissive.set(0x5a0a14);
     $('progress').classList.add('done');
-    toast('Hamma xotiralarni ko‘rding. Endi yurak oldiga bor.');
+    toast('Hamma xotiralarni ko‘rding. Endi terrasaga chiq, yurak seni kutyapti.');
   }
 
   $('letter-title').textContent = SITE.letter.title.replace('{name}', profile.name);
@@ -247,7 +335,7 @@ async function boot() {
     if (finaleDone || finaleRunning || !started) return;
     finaleRunning = true;
     returnMode = me.state === 'sit' ? 'sit' : 'walk';
-    if (me.state === 'dance') me.state = 'stand';
+    if (me.state === 'dance' || me.state === 'wave' || me.state === 'kiss') me.state = 'stand';
     stopVoice();
     $('panel').hidden = true;
     $('hud').hidden = true;
@@ -292,6 +380,7 @@ async function boot() {
 
   function closeLetter() {
     $('letter').hidden = true;
+    fireworks.start(34); // maktubdan keyin daryo ustida mushakbozlik
     player.flyTo(() => player.followPose(), 1.3, () => {
       player.mode = returnMode;
       $('hud').hidden = false;
@@ -304,14 +393,58 @@ async function boot() {
   function openNote(n) {
     n.found = true;
     n.group.visible = false;
+    saveStore({ notes: world.notes.filter((x) => x.found).map((x) => x.index) });
     updateProgress();
-    $('note-text').textContent = SITE.reasons[n.index];
+    showNote(SITE.reasons[n.index]);
+  }
+
+  function showNote(text) {
+    $('note-text').textContent = text;
     $('note').hidden = false;
     clearTimeout(noteTimer);
     noteTimer = setTimeout(() => {
       $('note').hidden = true;
     }, 6500);
   }
+
+  // --- Osmondagi narsalar: uchar yulduz va bizning yulduzimiz ---
+  const skyTag = $('skytag');
+  let skyTarget = null;
+  let skyKey = '';
+  let wishIndex = 0;
+  const skyPoint = new THREE.Vector3();
+
+  function refreshSkyTag() {
+    let target = null;
+    if (player.camOutside && (player.mode === 'walk' || player.mode === 'sit')) {
+      const wish = world.night.wish();
+      target = wish ? { kind: 'wish', at: wish, label: 'Tilak ol ✨' } : { kind: 'star', at: world.night.ourStar, label: SITE.ourStar.name };
+      skyPoint.copy(target.at).project(camera);
+      if (skyPoint.z > 1 || Math.abs(skyPoint.x) > 0.92 || Math.abs(skyPoint.y) > 0.9) target = null;
+    }
+    skyTarget = target;
+    const key = target ? target.kind : '';
+    if (key !== skyKey) {
+      skyKey = key;
+      skyTag.hidden = !target;
+      if (target) skyTag.textContent = target.label;
+    }
+    if (target) {
+      const x = ((skyPoint.x + 1) / 2) * innerWidth;
+      const y = ((1 - skyPoint.y) / 2) * innerHeight;
+      skyTag.style.transform = `translate(${x}px, ${y}px) translate(-50%, 16px)`;
+    }
+  }
+
+  skyTag.onclick = () => {
+    if (!skyTarget) return;
+    if (skyTarget.kind === 'wish') {
+      showNote(SITE.wishes[wishIndex++ % SITE.wishes.length]);
+      world.night.catchWish();
+    } else {
+      showNote(SITE.ourStar.message);
+    }
+  };
 
   // --- Birga o‘tgan vaqt ---
   if (world.counter && SITE.together?.since) {
@@ -337,7 +470,7 @@ async function boot() {
   const heartAnchor = new THREE.Vector3(pedestal.x, 2, pedestal.z);
 
   function findPrompt() {
-    if (player.mode === 'sit' && !me.slide) {
+    if (player.mode === 'sit' && !me.slide && !me.shot) {
       return { kind: 'stand', label: 'Turish', at: anchor.set(me.x, 1.9, me.z) };
     }
     if (player.mode === 'dance') return null;
@@ -348,6 +481,11 @@ async function boot() {
         return { kind: 'wait', label: `${partnerName} ham kelsin`, at: heartAnchor };
       }
       return { kind: 'letter', label: 'Maktubni ochish', at: heartAnchor };
+    }
+
+    const { dinner } = layout;
+    if (Math.hypot(me.x - dinner.center.x, me.z - dinner.center.z) < 2.5) {
+      return { kind: 'dinner', label: 'Kechki ovqat', at: anchor.set(dinner.center.x, 1.5, dinner.center.z) };
     }
 
     for (const n of world.notes) {
@@ -388,6 +526,7 @@ async function boot() {
     if (!prompt) return;
     if (prompt.kind === 'frame') openMemory(prompt.index);
     else if (prompt.kind === 'bench') player.sit(prompt.bench);
+    else if (prompt.kind === 'dinner') player.sitDinner(layout.dinner);
     else if (prompt.kind === 'stand') player.stand();
     else if (prompt.kind === 'letter') {
       if (finaleDone) openLetter();
@@ -432,7 +571,7 @@ async function boot() {
     hint.classList.add('gone');
   };
 
-  const canLook = () => player.mode === 'walk' || player.mode === 'sit' || player.mode === 'dance';
+  const canLook = () => ['walk', 'sit', 'dance', 'slow'].includes(player.mode);
 
   const input = new Input($('scene'), $('stick'), $('knob'), {
     onLook(dx, dy) {
@@ -454,6 +593,10 @@ async function boot() {
         if (canInteract()) act();
       } else if (code === 'KeyQ') {
         player.toggleDance();
+      } else if (code === 'KeyK') {
+        kiss();
+      } else if (code === 'KeyG') {
+        gift();
       } else if (player.mode === 'view' && $('letter').hidden) {
         if (code === 'Escape') closeMemory();
         if (code === 'ArrowLeft') step(-1);
@@ -469,6 +612,27 @@ async function boot() {
     : 'W A S D bilan yuring, sichqonchani sudrab qarang, Q bilan raqsga tushing.';
   $('dance').innerHTML = input.touch ? 'Raqs' : 'Raqs <kbd>Q</kbd>';
   $('dance').onclick = () => player.toggleDance();
+  $('kiss').innerHTML = input.touch ? 'O‘pish' : 'O‘pish <kbd>K</kbd>';
+  function kiss() {
+    if (!player.canKiss()) return;
+    if (player.remote) net.sendKiss();
+    player.startKiss(true);
+  }
+  $('kiss').onclick = kiss;
+  player.onSlowStart = () => {
+    if (player.remote) net.sendEvent('d');
+  };
+  $('gift').innerHTML = input.touch ? 'Sovg‘a berish' : 'Sovg‘a berish <kbd>G</kbd>';
+  function gift() {
+    if (player.giveGift(true) && player.remote) net.sendEvent('g');
+  }
+  $('gift').onclick = gift;
+  player.onGift = () => showNote(SITE.gift.message);
+  $('run').innerHTML = input.touch ? 'Yugurish' : 'Yugurish <kbd>Shift</kbd>';
+  $('run').onclick = (e) => {
+    input.runToggle = !input.runToggle;
+    e.currentTarget.blur();
+  };
   updateProgress();
 
   // --- Musiqa ---
@@ -477,14 +641,16 @@ async function boot() {
     audio = new Audio(`${import.meta.env.BASE_URL}${SITE.music}`);
     audio.loop = true;
     audio.volume = 0.55;
-    const music = $('music');
-    music.hidden = false;
-    music.onclick = () => {
-      if (audio.paused) audio.play();
-      else audio.pause();
-      music.classList.toggle('off', audio.paused);
-    };
   }
+  const soundBtn = $('music');
+  soundBtn.hidden = false;
+  soundBtn.onclick = () => {
+    const off = !sound.muted;
+    sound.setMuted(off);
+    voice.muted = off;
+    if (audio) audio.muted = off;
+    soundBtn.classList.toggle('off', off);
+  };
 
   // --- Ikkinchi mehmon ---
   function setPartner(name, gender) {
@@ -495,6 +661,7 @@ async function boot() {
     fresh.x = them.x;
     fresh.z = them.z;
     fresh.heading = them.heading;
+    fresh.onStep = () => sound.step(0.4);
     world.scene.remove(them.root);
     world.scene.add(fresh.root);
     them = fresh;
@@ -517,13 +684,25 @@ async function boot() {
       setPartner(peer.name, peer.gender);
       partnerName = peer.name;
       player.remote = { x: them.x, z: them.z, h: them.heading, s: 0, st: 'stand' };
-      if (first) toast(`${peer.name} muzeyga kirdi`);
+      if (first) {
+        toast(`${peer.name} muzeyga kirdi`);
+        player.greet();
+      }
     },
     onState(state) {
       if (player.remote) player.remote = state;
     },
     onFinale() {
       startFinale();
+    },
+    onKiss() {
+      if (player.canKiss()) player.startKiss(false);
+    },
+    onSlow() {
+      if (player.canKiss()) player.startSlow(false);
+    },
+    onGift() {
+      player.giveGift(false);
     },
     onLeft() {
       player.remote = null;
@@ -563,9 +742,14 @@ async function boot() {
       player.update(dt, input);
       broadcast(dt, net);
       refreshTag();
-      $('dance').classList.toggle('on', player.mode === 'dance');
+      refreshSkyTag();
+      $('dance').classList.toggle('on', player.mode === 'dance' || player.mode === 'slow');
+      $('kiss').hidden = !player.canKiss();
+      $('gift').hidden = !(me.state === 'table' && them.state === 'table' && !me.shot && !them.shot && !player.gift);
+      $('run').classList.toggle('on', input.run);
+      $('run').setAttribute('aria-pressed', String(input.run));
 
-      if (player.mode === 'dance' && !reducedMotion) {
+      if ((player.mode === 'dance' || player.mode === 'kiss') && !reducedMotion) {
         emit -= dt;
         if (emit <= 0) {
           emit = 0.28;
@@ -577,11 +761,14 @@ async function boot() {
     hearts.update(dt);
     petals.update(dt, now);
     sky.update(dt);
+    fireworks.update(dt, sound);
     if (!reducedMotion) {
       for (const f of world.flames) {
         const v = 0.3 + Math.sin(now * 0.011 + f.seed) * 0.025 + Math.sin(now * 0.023 + f.seed * 2) * 0.02;
         f.flame.scale.setScalar(v);
       }
+      world.romance(now);
+      world.night.update(now, camera, player.camOutside);
       for (const n of world.notes) {
         if (n.found) continue;
         n.group.position.y = 1.15 + Math.sin(now * 0.0016 + n.seed) * 0.07;
@@ -592,7 +779,11 @@ async function boot() {
       world.heart.rotation.y = now * 0.0006;
       if (finished) world.heart.scale.setScalar(0.42 * (1 + Math.sin(now * 0.005) * 0.09));
     }
-    renderer.render(world.scene, camera);
+    if (started) {
+      if (composer) composer.render(dt);
+      else renderer.render(world.scene, camera);
+      watchSpeed(dt);
+    }
     requestAnimationFrame(frame);
   }
   camera.position.set(0, 3.5, -0.4);
@@ -601,6 +792,7 @@ async function boot() {
   function unlockAudio() {
     audio?.play().catch(() => {});
     voice.play().catch(() => {});
+    sound.start(!SITE.music);
   }
 
   function begin() {
@@ -610,6 +802,8 @@ async function boot() {
     started = true;
     player.flyTo(() => player.followPose(), 3, () => {
       player.mode = 'walk';
+      if (!player.remote) player.greetCompanion();
+      if (!finished && seen.size === placements.length) finish();
     });
   }
 

@@ -15,6 +15,20 @@ export const SITE = {
   companion: { name: 'Sevgilim', gender: 'opposite' },
   // Birga o‘tgan vaqt hisoblagichi. NAMUNA SANA: tanishgan kuningizga almashtiring.
   together: { since: '2024-02-14T18:00:00' },
+  // Terrasadagi osmon yuqoridagi sanada shu joydan qanday ko‘ringan bo‘lsa, shunday chiziladi.
+  sky: { city: 'Toshkent', lat: 41.3111, lon: 69.2797, utcOffset: '+05:00' },
+  // Uchar yulduz tutilganda chiqadigan tilaklar. NAMUNA: o‘zingiznikiga almashtiring.
+  wishes: [
+    'Har yangi kunni sen bilan boshlashni tilayman.',
+    'Sening kulging hech qachon so‘nmasin.',
+    'Birga qariyligimizni tilayman.',
+    'Orzularing birma-bir ushalsin.',
+    'Bizning hikoyamiz hech tugamasin.',
+  ],
+  // Stoldagi sovg'a qutisi ochilganda chiqadigan xabar. NAMUNA: o‘zingiznikiga almashtiring.
+  gift: { message: 'Bu quti ichida eng qimmatli narsam bor: butun yuragim.' },
+  // Osmondagi alohida yulduz. NAMUNA: o‘z xabaringizga almashtiring.
+  ourStar: { name: 'Bizning yulduzimiz', message: 'Bu yulduz biz tanishgan kechada ham shu yerda porlab turgan edi.' },
   // Zal bo‘ylab yashirilgan xatchalar. NAMUNA MATNLAR: o‘z so‘zlaringizga almashtiring.
   reasons: [
     'Kulganingda butun xona yorishib ketadi.',
@@ -30,6 +44,7 @@ export const SITE = {
     'Sen meni yaxshiroq odam qilasan.',
     'Chunki sen — sensan.',
   ],
+  sign: 'Seni sevaman', // atirgul arkasi ostidagi yozuv
   music: null, // masalan: 'music.mp3' (public/ papkasida)
   // Hamma xotira ko‘rilgach, yurak oldida ochiladigan maktub.
   letter: {

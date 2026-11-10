@@ -3,7 +3,10 @@ import * as THREE from 'three';
 export const HALL = { width: 11, height: 4.2 };
 export const FRAME_Y = 1.72;
 export const MAT = 0.11;
-export const BORDER = 0.035;
+export const BORDER = 0.06;
+// Zal oxiridagi eshik va uning ortidagi terrasa.
+export const DOOR = { x: 4.4, half: 0.95, height: 2.6 };
+export const TERRACE = { minX: -6, maxX: 7, depth: 9 };
 
 const UP = new THREE.Vector3(0, 1, 0);
 const GAP = 1.9;
@@ -74,7 +77,16 @@ export function computeLayout(memories) {
     });
   }
 
-  const pedestal = new THREE.Vector3(-1.1, 0, -length * 0.42); // yo‘lni to‘smasligi uchun chetroqda
+  // Yurak va final terrasada: eshikdan chiqib, osmon ostida tugaydi.
+  const terraceX = (TERRACE.minX + TERRACE.maxX) / 2;
+  const pedestal = new THREE.Vector3(terraceX, 0, -length - 3.4);
+  benches.push({
+    seat: new THREE.Vector3(terraceX, 0, -length - 6.4),
+    stand: new THREE.Vector3(terraceX, 0, -length - 7.2),
+    yaw: 0,
+    along: new THREE.Vector3(1, 0, 0),
+    length: 2.6,
+  });
   const colliders = [
     ...benches.map((b) => {
       const alongX = Math.abs(b.along.x) > 0.5;

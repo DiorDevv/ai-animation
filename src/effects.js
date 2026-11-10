@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { HALL } from './layout.js';
+import { glowDot } from './romance.js';
 
 function heartTexture() {
   const c = document.createElement('canvas');
@@ -96,5 +97,114 @@ export class Petals {
       this.mesh.setMatrixAt(i, d.matrix);
     });
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+const BURSTS = 7;
+const PER_BURST = 150;
+const PALETTE = [[1, 0.35, 0.45], [1, 0.8, 0.35], [0.55, 0.75, 1], [1, 0.5, 0.85], [0.6, 1, 0.75], [1, 1, 0.92]];
+
+/** Daryo ustida mushakbozlik: uchqunlar suvda ham aks etadi. */
+export class Fireworks {
+  time = 0;
+  next = 0;
+  cursor = 0;
+
+  constructor(scene, cx, centerZ) {
+    this.cx = cx;
+    this.centerZ = centerZ;
+    const total = BURSTS * PER_BURST;
+    this.positions = new Float32Array(total * 3);
+    this.colors = new Float32Array(total * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
+    this.geo = geo;
+
+    const map = glowDot();
+    const material = (size, opacity) =>
+      new THREE.PointsMaterial({
+        size,
+        map,
+        vertexColors: true,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+    this.sparks = new THREE.Points(geo, material(2.1, 1));
+    this.mirror = new THREE.Points(geo, material(2.3, 0.3));
+    this.mirror.scale.y = -1;
+    for (const p of [this.sparks, this.mirror]) {
+      p.frustumCulled = false;
+      p.visible = false;
+      scene.add(p);
+    }
+    this.bursts = Array.from({ length: BURSTS }, () => ({ life: 0 }));
+  }
+
+  start(seconds) {
+    this.time = seconds;
+    this.next = 0;
+    this.sparks.visible = this.mirror.visible = true;
+  }
+
+  spawn() {
+    const b = this.bursts[this.cursor++ % BURSTS];
+    b.life = 1;
+    b.age = 0;
+    b.x = this.cx - 95 + Math.random() * 190;
+    b.y = 26 + Math.random() * 30;
+    b.z = this.centerZ - 205 - Math.random() * 25;
+    b.color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    const heart = Math.random() < 0.3;
+    b.dirs = Array.from({ length: PER_BURST }, (_, i) => {
+      if (heart) {
+        const t = (i / PER_BURST) * Math.PI * 2;
+        return [(16 * Math.sin(t) ** 3) / 16, (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 16, 0, 15];
+      }
+      const a = Math.random() * Math.PI * 2;
+      const y = Math.random() * 2 - 1;
+      const r = Math.sqrt(1 - y * y);
+      return [Math.cos(a) * r, y, Math.sin(a) * r, 11 + Math.random() * 10];
+    });
+  }
+
+  update(dt, sound) {
+    if (!this.sparks.visible) return;
+    if (this.time > 0) {
+      this.time -= dt;
+      this.next -= dt;
+      if (this.next <= 0) {
+        this.next = 0.55 + Math.random() * 0.9;
+        this.spawn();
+        setTimeout(() => sound.boom(), 500);
+      }
+    }
+    let alive = this.time > 0;
+    this.bursts.forEach((b, n) => {
+      const offset = n * PER_BURST;
+      if (b.life <= 0) {
+        this.colors.fill(0, offset * 3, (offset + PER_BURST) * 3);
+        return;
+      }
+      alive = true;
+      b.age += dt;
+      b.life -= dt / 2.7;
+      const reach = 1 - Math.exp(-b.age * 2.2);
+      const fade = Math.max(0, b.life) ** 1.3 * 1.6;
+      b.dirs.forEach((d, i) => {
+        const at = (offset + i) * 3;
+        this.positions[at] = b.x + d[0] * d[3] * reach;
+        this.positions[at + 1] = b.y + d[1] * d[3] * reach - 2.4 * b.age * b.age;
+        this.positions[at + 2] = b.z + d[2] * d[3] * reach;
+        this.colors[at] = b.color[0] * fade;
+        this.colors[at + 1] = b.color[1] * fade;
+        this.colors[at + 2] = b.color[2] * fade;
+      });
+    });
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.attributes.color.needsUpdate = true;
+    if (!alive) this.sparks.visible = this.mirror.visible = false;
   }
 }

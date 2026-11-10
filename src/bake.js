@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HALL, FRAME_Y } from './layout.js';
+import { HALL, FRAME_Y, DOOR, TERRACE } from './layout.js';
 
 // Yorug‘lik va soyalar oldindan teksturaga chiziladi: telefonda ham silliq ishlaydi.
 const MAX_TEX = 4096;
@@ -53,8 +53,8 @@ export function bakeWall({ length, items, panel = 0, draw }) {
 
   const base = ctx.createLinearGradient(0, 0, 0, Ht);
   base.addColorStop(0, '#2f2722');
-  base.addColorStop(0.5, '#43372f');
-  base.addColorStop(1, '#3a2f28');
+  base.addColorStop(0.5, '#4b3430');
+  base.addColorStop(1, '#3f2b28');
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, Ht);
 
@@ -129,6 +129,48 @@ export function bakeFloor(layout) {
     ellipseGlow(ctx, toX(c.x), toY(c.z), alongX ? wide : deep, alongX ? deep : wide, '255,196,128', 0.5);
   }
 
+  // Atirgul yo‘lagi: markazdagi gilam va sochilgan barglar.
+  const carpet = 2.5 * ppm;
+  const carpetX = (cw - carpet) / 2;
+  ctx.fillStyle = '#5c1421';
+  ctx.fillRect(carpetX, 0, carpet, ch);
+  ctx.fillStyle = 'rgba(214,170,92,.75)';
+  ctx.fillRect(carpetX + 0.07 * ppm, 0, 0.035 * ppm, ch);
+  ctx.fillRect(carpetX + carpet - 0.105 * ppm, 0, 0.035 * ppm, ch);
+
+  const petal = (x, y) => drawPetal(ctx, x, y, ppm);
+  for (let i = 0; i < L * 42; i++) {
+    const edge = Math.random() < 0.6;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const x = edge ? side * (1.15 + Math.random() * 0.75) : (Math.random() - 0.5) * 2.2;
+    petal(toX(x), Math.random() * ch);
+  }
+  // Yaltiroq pol: har suratning xira aksi.
+  const reflection = document.createElement('canvas');
+  reflection.width = reflection.height = 40;
+  const rc = reflection.getContext('2d');
+  for (const p of layout.placements) {
+    rc.globalCompositeOperation = 'source-over';
+    rc.clearRect(0, 0, 40, 40);
+    rc.save();
+    rc.translate(0, 40);
+    rc.scale(1, -1);
+    rc.drawImage(p.memory.canvas, 0, 0, 40, 40);
+    rc.restore();
+    rc.globalCompositeOperation = 'destination-in';
+    const fade = rc.createLinearGradient(0, 0, 0, 40);
+    fade.addColorStop(0, 'rgba(0,0,0,.42)');
+    fade.addColorStop(1, 'rgba(0,0,0,0)');
+    rc.fillStyle = fade;
+    rc.fillRect(0, 0, 40, 40);
+
+    ctx.save();
+    ctx.setTransform(p.right.x * ppm, p.right.z * ppm, p.normal.x * ppm, p.normal.z * ppm, toX(p.pos.x), toY(p.pos.z));
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(reflection, -p.w / 2, 0.02, p.w, 1.5);
+    ctx.restore();
+  }
+
   for (const b of layout.benches) {
     const alongX = Math.abs(b.along.x) > 0.5;
     const a = (b.length / 2 + 0.25) * ppm;
@@ -142,6 +184,74 @@ export function bakeFloor(layout) {
   edgeShade(ctx, 0, 0, 0, 0.8 * ppm, [0, 0, cw, 0.8 * ppm], 0.3);
   edgeShade(ctx, 0, ch, 0, ch - 0.8 * ppm, [0, ch - 0.8 * ppm, cw, 0.8 * ppm], 0.3);
 
+  return toTexture(canvas, 8);
+}
+
+function drawPetal(ctx, x, y, ppm) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.random() * 6.28);
+  ctx.fillStyle = ['#c41f3d', '#e0486a', '#9d1531', '#f07a93'][Math.floor(Math.random() * 4)];
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 0.045 * ppm, 0.03 * ppm, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+export function bakeTerrace(layout) {
+  const { minX, maxX, depth } = TERRACE;
+  const L = layout.length;
+  const ppm = 64;
+  const [canvas, ctx] = surface((maxX - minX) * ppm, depth * ppm);
+  const { width: cw, height: ch } = canvas;
+  const toX = (x) => (x - minX) * ppm;
+  const toY = (z) => (z + L + depth) * ppm;
+
+  ctx.fillStyle = '#3b3532';
+  ctx.fillRect(0, 0, cw, ch);
+  for (let i = 0; i < cw * ch * 0.012; i++) {
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,240,220,.05)' : 'rgba(0,0,0,.12)';
+    ctx.fillRect(Math.random() * cw, Math.random() * ch, 1.5, 1.5);
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,.35)';
+  ctx.lineWidth = 2;
+  for (let x = 0; x < cw; x += 1.1 * ppm) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, ch);
+    ctx.stroke();
+  }
+  for (let y = 0; y < ch; y += 1.1 * ppm) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(cw, y);
+    ctx.stroke();
+  }
+
+  // Oy nuri va eshikdan tushayotgan iliq yorug‘lik
+  ellipseGlow(ctx, cw * 0.45, ch * 0.3, cw * 0.6, ch * 0.65, '150,165,220', 0.2);
+  ellipseGlow(ctx, toX(DOOR.x), toY(-L), 2.2 * ppm, 3.4 * ppm, '255,196,128', 0.55);
+
+  const { pedestal: h } = layout;
+  // Eshikdan yurakkacha barg yo‘li
+  for (let i = 0; i < 420; i++) {
+    const t = Math.random();
+    const x = DOOR.x + (h.x - DOOR.x) * t + (Math.random() - 0.5) * 1.5;
+    const z = -L + (h.z + L) * t;
+    drawPetal(ctx, toX(x), toY(z), ppm);
+  }
+  // Yurak atrofida barglardan yurak shakli
+  for (let i = 0; i < 300; i++) {
+    const t = (i / 300) * Math.PI * 2;
+    const hx = 16 * Math.sin(t) ** 3;
+    const hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    drawPetal(ctx, toX(h.x + hx * 0.095), toY(h.z - hy * 0.095 + 0.2), ppm);
+  }
+  ellipseGlow(ctx, toX(h.x), toY(h.z), 0.85 * ppm, 0.85 * ppm, '10,6,4', 0.6);
+  for (const b of layout.benches) {
+    if (b.seat.z > -L) continue;
+    ellipseGlow(ctx, toX(b.seat.x), toY(b.seat.z), (b.length / 2 + 0.25) * ppm, 0.5 * ppm, '10,6,4', 0.55);
+  }
   return toTexture(canvas, 8);
 }
 

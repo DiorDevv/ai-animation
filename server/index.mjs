@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws';
 
 const PORT = Number(process.env.PORT) || 8787;
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-const STATES = new Set(['stand', 'sit', 'dance']);
+const STATES = new Set(['stand', 'sit', 'dance', 'wave', 'table', 'kiss', 'slow']);
 const GENDERS = new Set(['female', 'male']);
 
 const serve = sirv(DIST, { etag: true, dev: false });
@@ -70,8 +70,8 @@ wss.on('connection', (ws) => {
     } else if (m?.t === 's') {
       const state = cleanState(m);
       if (state) send(other(), state);
-    } else if (m?.t === 'f') {
-      send(other(), { t: 'f' });
+    } else if (['f', 'k', 'd', 'g'].includes(m?.t)) {
+      send(other(), { t: m.t });
     }
   });
 

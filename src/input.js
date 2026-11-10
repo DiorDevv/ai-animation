@@ -8,6 +8,7 @@ export class Input {
   forward = 0;
   turn = 0;
   run = false;
+  runToggle = false; // ekrandagi «Yugurish» tugmasi
   touch = matchMedia('(pointer: coarse)').matches;
 
   keys = new Set();
@@ -117,6 +118,6 @@ export class Input {
     if (Math.abs(this.strafe) < 0.08) this.strafe = 0;
     if (Math.abs(this.forward) < 0.08) this.forward = 0;
     this.turn = axis(k.has('ArrowLeft'), k.has('ArrowRight'));
-    this.run = k.has('ShiftLeft') || k.has('ShiftRight');
+    this.run = this.runToggle || k.has('ShiftLeft') || k.has('ShiftRight');
   }
 }

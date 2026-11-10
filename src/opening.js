@@ -25,7 +25,7 @@ function sample(W, H, count, draw) {
   for (let y = 0; y < H; y += step) {
     for (let x = 0; x < W; x += step) {
       const i = (y * W + x) * 4;
-      if (data[i + 3] > 110) points.push([x, y, data[i], data[i + 1], data[i + 2]]);
+      if (data[i + 3] > 110 && data[i] + data[i + 1] + data[i + 2] > 90) points.push([x, y, data[i], data[i + 1], data[i + 2]]);
     }
   }
   shuffle(points);
@@ -80,60 +80,101 @@ function drawName(ctx, W, H, name) {
   ctx.fillText(name, W / 2, H / 2);
 }
 
-function petal(ctx, cx, cy, rx, ry, angle, color) {
+/** Yon tomondan ko‘ringan atirgul. Qorong‘i chiziqlar zarrachasiz qolib, gulbarglarni ajratib turadi. */
+const roseScale = (W, H) => Math.min(W, H) * (W < 600 * 1.5 ? 0.0028 : 0.0017);
+
+function drawRose(ctx, W, H) {
+  const s = roseScale(W, H);
   ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(angle);
-  ctx.fillStyle = color;
+  ctx.translate(W / 2, H * 0.33);
+  ctx.scale(s, s);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  const shape = (d, top, bottom, y0 = -160, y1 = 140, line = 5) => {
+    const path = new Path2D(d);
+    const g = ctx.createLinearGradient(0, y0, 0, y1);
+    g.addColorStop(0, top);
+    g.addColorStop(1, bottom);
+    ctx.fillStyle = g;
+    ctx.fill(path);
+    ctx.strokeStyle = '#120207';
+    ctx.lineWidth = line;
+    ctx.stroke(path);
+  };
+
+  // Poya va tikanlar
+  ctx.strokeStyle = '#3f9a68';
+  ctx.lineWidth = 11;
   ctx.beginPath();
-  ctx.ellipse(0, -ry * 0.6, rx, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.moveTo(0, 130);
+  ctx.bezierCurveTo(-16, 170, 14, 205, -4, 238);
+  ctx.stroke();
+  shape('M-7,172 L-30,160 L-6,188Z', '#57b983', '#2f7a52', 160, 190, 2);
+
+  // Barglar
+  const leaf = (x, y, angle, size) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.scale(size, size);
+    shape('M0,0 C32,-40 96,-44 140,0 C96,44 32,40 0,0Z', '#6fd39a', '#2f8a5a', -44, 44, 4);
+    ctx.strokeStyle = '#123a26';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(6, 0);
+    ctx.lineTo(132, 0);
+    for (let i = 1; i <= 4; i++) {
+      const vx = i * 26;
+      ctx.moveTo(vx, 0);
+      ctx.lineTo(vx + 20, -24 + i * 2);
+      ctx.moveTo(vx, 0);
+      ctx.lineTo(vx + 20, 24 - i * 2);
+    }
+    ctx.stroke();
+    ctx.restore();
+  };
+  leaf(-6, 192, Math.PI + 0.42, 0.66);
+  leaf(4, 214, -0.32, 0.58);
+
+  // Gulbarglar: orqadan oldinga
+  const deep = '#7c0f2f';
+  const mid = '#b5173f';
+  const bright = '#e0355f';
+  const light = '#f2557c';
+
+  shape('M-95,-55 C-105,-130 -35,-160 5,-150 C55,-160 115,-125 100,-50 C60,-90 -50,-90 -95,-55Z', bright, deep);
+  shape('M-15,125 C-120,120 -185,40 -165,-40 C-155,-90 -115,-105 -85,-85 C-110,-20 -85,70 -15,125Z', light, deep);
+  shape('M20,125 C125,118 185,35 168,-45 C158,-92 118,-104 88,-84 C112,-20 90,70 20,125Z', light, deep);
+  shape('M-5,115 C-85,100 -130,30 -118,-40 C-110,-85 -70,-95 -45,-75 C-70,-20 -55,60 -5,115Z', bright, mid);
+  shape('M10,115 C90,98 132,25 120,-42 C112,-85 72,-96 48,-75 C72,-20 58,60 10,115Z', bright, mid);
+  shape('M-62,-50 C-60,-100 -15,-118 8,-112 C40,-118 72,-92 65,-45 C35,-72 -30,-72 -62,-50Z', light, mid);
+  shape('M-52,-52 L52,-52 L42,58 L-42,58Z', mid, deep, -52, 58, 0.5);
+  shape('M-24,-58 C-20,-85 20,-90 28,-60 C34,-30 10,-10 -8,-20 C-26,-30 -30,-48 -24,-58Z', '#ff7d9c', mid);
+  shape('M-55,-48 C-70,0 -45,48 0,55 C-25,20 -30,-20 -18,-62 C-30,-66 -45,-60 -55,-48Z', light, deep);
+  shape('M60,-46 C72,5 42,50 0,55 C30,25 34,-20 22,-64 C36,-66 52,-60 60,-46Z', light, deep);
+  shape('M-78,-10 C-80,60 -30,98 8,95 C48,95 85,55 82,-12 C55,30 -50,32 -78,-10Z', bright, deep, -12, 96);
+  shape('M-100,35 C-85,110 -35,135 5,135 C50,135 92,108 105,32 C70,72 -60,76 -100,35Z', light, mid, 32, 136);
+
+  // Markazdagi burama
+  ctx.strokeStyle = '#120207';
+  ctx.lineWidth = 4;
+  ctx.stroke(new Path2D('M-12,-50 C-8,-68 16,-70 18,-52 C19,-38 4,-32 -2,-42 C-5,-48 2,-54 7,-50'));
+
+  // Kosacha barglari
+  shape('M-12,128 C-50,140 -80,165 -98,172 C-60,178 -25,165 -3,146Z', '#62c78f', '#2f7a52', 128, 178, 3);
+  shape('M12,128 C50,140 80,165 98,172 C60,178 25,165 3,146Z', '#62c78f', '#2f7a52', 128, 178, 3);
+  shape('M-20,128 C-16,152 16,152 20,128 C8,134 -8,134 -20,128Z', '#57b983', '#2f7a52', 128, 152, 3);
   ctx.restore();
 }
 
-function drawRose(ctx, W, H, name) {
-  const s = Math.min(W, H) * 0.0021 * (W < 600 ? 1.5 : 1);
-  const cx = W / 2;
-  const cy = H * 0.34;
-
-  ctx.strokeStyle = '#4fae78';
-  ctx.lineWidth = 9 * s;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(cx, cy + 60 * s);
-  ctx.bezierCurveTo(cx - 24 * s, cy + 160 * s, cx + 26 * s, cy + 220 * s, cx - 6 * s, cy + 320 * s);
-  ctx.stroke();
-  ctx.fillStyle = '#58c088';
-  for (const [dx, dy, a] of [[-14, 190, -2.1], [8, 245, 2.0]]) {
-    ctx.save();
-    ctx.translate(cx + dx * s, cy + dy * s);
-    ctx.rotate(a);
-    ctx.beginPath();
-    ctx.ellipse(0, -44 * s, 20 * s, 44 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  const rings = [
-    [8, 120, 46, 80, '#a81b43'],
-    [7, 86, 40, 66, '#d22a59'],
-    [6, 56, 32, 52, '#ee4a78'],
-    [5, 30, 24, 38, '#ff6f95'],
-    [3, 10, 15, 22, '#ffa3bb'],
-  ];
-  rings.forEach(([n, r, rx, ry, color], ring) => {
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + ring * 0.55;
-      petal(ctx, cx + Math.sin(a) * r * 0.5 * s, cy - Math.cos(a) * r * 0.5 * s, rx * s, ry * s, a, color);
-    }
-  });
-
+function drawRoseName(ctx, W, H, name) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const fontFor = (size) => `400 ${size}px ${SCRIPT}`;
-  fitText(ctx, name, fontFor, W * 0.7, Math.min(W * 0.14, 96));
+  fitText(ctx, name, fontFor, W * 0.7, Math.min(W * 0.16, 130));
   ctx.fillStyle = '#ffd9c7';
-  ctx.fillText(name, W / 2, H * 0.84);
+  ctx.fillText(name, W / 2, H * 0.33 + 285 * roseScale(W, H));
 }
 
 /**
@@ -153,10 +194,15 @@ export async function playOpening(name, reducedMotion, onFirstTap, onReveal) {
   canvas.height = H;
   const ctx = canvas.getContext('2d');
 
-  const COUNT = innerWidth < 600 ? 1500 : 2600;
+  const COUNT = innerWidth < 600 ? 3000 : 5200;
   const envelope = sample(W, H, COUNT, (c) => drawEnvelope(c, W, H));
   const nameShape = sample(W, H, COUNT, (c) => drawName(c, W, H, name));
-  const rose = sample(W, H, COUNT, (c) => drawRose(c, W, H, name));
+  // Ism alohida ulush oladi, aks holda katta gul barcha zarrachalarni olib qo‘yadi.
+  const nameCount = Math.round(COUNT * 0.2);
+  const rose = [
+    ...sample(W, H, COUNT - nameCount, (c) => drawRose(c, W, H)),
+    ...sample(W, H, nameCount, (c) => drawRoseName(c, W, H, name)),
+  ];
 
   const particles = Array.from({ length: COUNT }, () => ({
     x: Math.random() * W,
@@ -237,7 +283,7 @@ export async function playOpening(name, reducedMotion, onFirstTap, onReveal) {
     target = nameShape;
     await wait(2800);
     target = rose;
-    await wait(3800);
+    await wait(4800);
   } else {
     target = rose;
     await wait(1500);

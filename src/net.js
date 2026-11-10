@@ -57,7 +57,21 @@ export class Net {
       this.handlers.onState(m);
     } else if (m.t === 'f' && this.peer) {
       this.handlers.onFinale();
+    } else if (m.t === 'k' && this.peer) {
+      this.handlers.onKiss();
+    } else if (m.t === 'd' && this.peer) {
+      this.handlers.onSlow();
+    } else if (m.t === 'g' && this.peer) {
+      this.handlers.onGift();
     }
+  }
+
+  sendKiss() {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ t: 'k' }));
+  }
+
+  sendEvent(t) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ t }));
   }
 
   sendFinale() {

@@ -17,11 +17,11 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-function domePoint() {
+function domePoint(centerZ) {
   const a = Math.random() * Math.PI * 2;
   const up = 0.12 + Math.random() * 0.88;
   const flat = Math.sqrt(1 - up * up);
-  return [Math.cos(a) * flat * SKY_RADIUS, up * SKY_RADIUS, Math.sin(a) * flat * SKY_RADIUS];
+  return [Math.cos(a) * flat * SKY_RADIUS, up * SKY_RADIUS, centerZ + Math.sin(a) * flat * SKY_RADIUS];
 }
 
 function textPoints(text) {
@@ -60,8 +60,8 @@ export class Sky {
   running = false;
   t = 0;
 
-  constructor(scene, room, pixelRatio, reducedMotion) {
-    Object.assign(this, { scene, room, reducedMotion });
+  constructor(scene, room, pixelRatio, reducedMotion, centerZ) {
+    Object.assign(this, { scene, room, reducedMotion, centerZ });
     const map = dotTexture();
     const material = (size, color) =>
       new THREE.PointsMaterial({
@@ -75,14 +75,6 @@ export class Sky {
         blending: THREE.AdditiveBlending,
       });
 
-    const stars = new Float32Array(1500 * 3);
-    for (let i = 0; i < 1500; i++) stars.set(domePoint(), i * 3);
-    const starGeo = new THREE.BufferGeometry();
-    starGeo.setAttribute('position', new THREE.BufferAttribute(stars, 3));
-    this.stars = new THREE.Points(starGeo, material(2.2, 0xdfe6ff));
-    this.stars.visible = false;
-    this.stars.frustumCulled = false;
-    scene.add(this.stars);
 
     this.nameGeo = new THREE.BufferGeometry();
     this.namePos = new Float32Array(NAME_POINTS * 3);
@@ -103,11 +95,11 @@ export class Sky {
     const p = new THREE.Vector3();
     this.items = points.map(([u, v]) => {
       p.copy(center).addScaledVector(right, u * width).addScaledVector(up, v * height);
-      return { from: domePoint(), to: [p.x, p.y, p.z], delay: Math.random() * 1.1 };
+      return { from: domePoint(this.centerZ), to: [p.x, p.y, p.z], delay: Math.random() * 1.1 };
     });
     this.items.forEach((it, i) => this.namePos.set(it.from, i * 3));
     this.nameGeo.attributes.position.needsUpdate = true;
-    this.stars.visible = this.name.visible = true;
+    this.name.visible = true;
   }
 
   update(dt) {
@@ -118,7 +110,6 @@ export class Sky {
     room.setDim(1 - 0.5 * clamp01(t / 1.6));
     room.setCeiling(1 - clamp01((t - 0.3) / 1.7));
     const glow = clamp01((t - 1) / 1.6);
-    this.stars.material.opacity = glow;
     this.name.material.opacity = glow;
 
     if (t > 2 && t < 5.2) {

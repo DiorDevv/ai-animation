@@ -1,7 +1,9 @@
 import * as THREE from 'three';
-import { HALL, MAT, BORDER } from './layout.js';
+import { HALL, MAT, BORDER, DOOR } from './layout.js';
 import { bakeWall, bakeFloor, bakeCeilingTile, bakePlaque, drawDedication, toTexture } from './bake.js';
 import { SITE } from './config.js';
+import { buildRomance } from './romance.js';
+import { buildTerrace } from './terrace.js';
 
 const basic = (map) => new THREE.MeshBasicMaterial({ map });
 const room = { dim: [], ceiling: null, lamps: null };
@@ -12,6 +14,27 @@ function addWall(scene, { center, length, rotY, map }) {
   mesh.rotation.y = rotY;
   scene.add(mesh);
   room.dim.push(mesh.material);
+}
+
+/** Terrasaga chiqish eshigi ochilgan oxirgi devor. */
+function addEndWall(scene, L, map) {
+  const W = HALL.width;
+  const H = HALL.height;
+  const material = basic(map);
+  room.dim.push(material);
+  const piece = (x0, x1, y0, y1) => {
+    const g = new THREE.PlaneGeometry(x1 - x0, y1 - y0, Math.ceil(x1 - x0), 2);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      g.attributes.uv.setXY(i, (pos.getX(i) + (x0 + x1) / 2 + W / 2) / W, (pos.getY(i) + (y0 + y1) / 2) / H);
+    }
+    const mesh = new THREE.Mesh(g, material);
+    mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, -L);
+    scene.add(mesh);
+  };
+  piece(-W / 2, DOOR.x - DOOR.half, 0, H);
+  piece(DOOR.x + DOOR.half, W / 2, 0, H);
+  piece(DOOR.x - DOOR.half, DOOR.x + DOOR.half, DOOR.height, H);
 }
 
 function wallItems(placements, wall, center) {
@@ -32,12 +55,7 @@ function buildRoom(scene, layout) {
 
   addWall(scene, { center: leftC, length: L, rotY: Math.PI / 2, map: bakeWall({ length: L, items: wallItems(placements, 'left', leftC) }) });
   addWall(scene, { center: rightC, length: L, rotY: -Math.PI / 2, map: bakeWall({ length: L, items: wallItems(placements, 'right', rightC) }) });
-  addWall(scene, {
-    center: endC,
-    length: W,
-    rotY: 0,
-    map: bakeWall({ length: W, items: wallItems(placements, 'end', endC), panel: layout.endSpan ? layout.endSpan + 1.6 : 0 }),
-  });
+  addEndWall(scene, L, bakeWall({ length: W, items: wallItems(placements, 'end', endC), panel: layout.endSpan ? layout.endSpan + 0.8 : 0 }));
   addWall(scene, {
     center: startC,
     length: W,
@@ -84,29 +102,95 @@ function buildRoom(scene, layout) {
   room.lamps = lamps;
 }
 
+function glassTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 256, 256);
+  g.addColorStop(0, 'rgba(255,240,215,.22)');
+  g.addColorStop(0.32, 'rgba(255,240,215,.03)');
+  g.addColorStop(0.46, 'rgba(255,240,215,.1)');
+  g.addColorStop(0.58, 'rgba(255,240,215,0)');
+  g.addColorStop(1, 'rgba(255,240,215,.05)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function matTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#efe6d4';
+  ctx.fillRect(0, 0, 256, 256);
+  const edge = (x0, y0, x1, y1) => {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, 'rgba(40,26,12,.34)');
+    g.addColorStop(1, 'rgba(40,26,12,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 256);
+  };
+  edge(0, 0, 0, 16);
+  edge(0, 256, 0, 240);
+  edge(0, 0, 16, 0);
+  edge(256, 0, 240, 0);
+  return toTexture(c);
+}
+
 function buildFrames(scene, placements, maxAniso) {
-  const frameMat = new THREE.MeshBasicMaterial({ color: 0xb8924a });
-  const matMat = new THREE.MeshBasicMaterial({ color: 0xefe6d4 });
+  const backMat = new THREE.MeshBasicMaterial({ color: 0x1a120a });
+  const gold = new THREE.MeshLambertMaterial({ color: 0xc9a25a });
+  const matMat = new THREE.MeshBasicMaterial({ map: matTexture() });
+  const cutMat = new THREE.MeshBasicMaterial({ color: 0x8a7a60 });
+  const glass = new THREE.MeshBasicMaterial({
+    map: glassTexture(),
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
   const hit = [];
+  const DEPTH = 0.08;
 
   for (const p of placements) {
     const group = new THREE.Group();
     group.position.copy(p.pos);
     group.rotation.y = p.yaw;
 
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(p.outerW, p.outerH, 0.05), frameMat);
-    frame.position.z = 0.025;
-    frame.userData.placement = p;
-    group.add(frame);
-    hit.push(frame);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(p.outerW, p.outerH, 0.05), backMat);
+    back.position.z = 0.025;
+    back.userData.placement = p;
+    group.add(back);
+    hit.push(back);
+
+    // Oltin yog‘och ramka: to‘rt alohida qirra
+    const horizontal = new THREE.BoxGeometry(p.outerW, BORDER, DEPTH);
+    const vertical = new THREE.BoxGeometry(BORDER, p.outerH - 2 * BORDER, DEPTH);
+    for (const sign of [-1, 1]) {
+      const h = new THREE.Mesh(horizontal, gold);
+      h.position.set(0, (sign * (p.outerH - BORDER)) / 2, DEPTH / 2);
+      const v = new THREE.Mesh(vertical, gold);
+      v.position.set((sign * (p.outerW - BORDER)) / 2, 0, DEPTH / 2);
+      group.add(h, v);
+    }
 
     const mat = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 2 * MAT, p.h + 2 * MAT), matMat);
     mat.position.z = 0.053;
     group.add(mat);
 
+    const cut = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 0.014, p.h + 0.014), cutMat);
+    cut.position.z = 0.055;
+    group.add(cut);
+
     const photo = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.h), basic(toTexture(p.memory.canvas, maxAniso)));
-    photo.position.z = 0.056;
+    photo.position.z = 0.057;
     group.add(photo);
+
+    const sheen = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 2 * MAT, p.h + 2 * MAT), glass);
+    sheen.position.z = 0.062;
+    group.add(sheen);
 
     const plaque = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.23), basic(bakePlaque(p.memory)));
     plaque.position.set(p.outerW / 2 + 0.38, -0.5, 0.006);
@@ -243,7 +327,7 @@ function buildCounter(scene, layout) {
 }
 
 function buildHeart(scene, at) {
-  const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.05, 0.8), new THREE.MeshLambertMaterial({ color: 0xd9cdb8 }));
+  const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.05, 0.8), new THREE.MeshLambertMaterial({ color: 0x8f8474 }));
   pedestal.position.copy(at).setY(0.525);
   scene.add(pedestal);
 
@@ -259,7 +343,7 @@ function buildHeart(scene, at) {
   const geo = new THREE.ExtrudeGeometry(s, { depth: 0.16, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 5, curveSegments: 24 });
   geo.center();
   geo.rotateZ(Math.PI);
-  const heart = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb01f2e, roughness: 0.32, metalness: 0.15 }));
+  const heart = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xb01f2e }));
   heart.scale.setScalar(0.42);
   heart.position.copy(at).setY(1.42);
   scene.add(heart);
@@ -269,8 +353,8 @@ function buildHeart(scene, at) {
 export function buildWorld(layout, maxAniso, noteCount) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x05060d);
-  scene.add(new THREE.HemisphereLight(0xffdfbd, 0x2a1f18, 1.3));
-  const sun = new THREE.DirectionalLight(0xffd29a, 1.9);
+  scene.add(new THREE.HemisphereLight(0xffdfbd, 0x2a1f18, 0.95));
+  const sun = new THREE.DirectionalLight(0xffd29a, 1.15);
   sun.position.set(2, 6, 3);
   scene.add(sun);
 
@@ -279,6 +363,8 @@ export function buildWorld(layout, maxAniso, noteCount) {
   buildBenches(scene, layout.benches);
   const heart = buildHeart(scene, layout.pedestal);
   const flames = buildCandles(scene, layout);
+  const night = buildTerrace(scene, layout);
+  const romance = buildRomance(scene, layout, SITE.sign);
   const notes = buildNotes(scene, layout, noteCount);
   const counter = buildCounter(scene, layout);
 
@@ -290,7 +376,7 @@ export function buildWorld(layout, maxAniso, noteCount) {
     room.lamps.visible = v > 0.4;
   };
 
-  return { scene, frames, heart, flames, notes, counter, room };
+  return { scene, frames, heart, flames, notes, counter, room, romance, night };
 }
 
 export const FRAME_DEPTH = MAT + BORDER;
